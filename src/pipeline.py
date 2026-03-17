@@ -9,7 +9,9 @@ import sagemaker.processing
 
 
 def get_pipeline(region, role, bucket):
-    session = PipelineSession()
+
+    # Force SageMaker to use YOUR bucket instead of creating a default one
+    session = PipelineSession(default_bucket=bucket)
 
     # -------------------------
     # PREPROCESS STEP (FREE TIER)
