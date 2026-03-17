@@ -47,7 +47,7 @@ jobs:
             -input=false \
             -out=tfplan \
             -var="github_owner=${{ github.repository_owner }}" \
-            -var="github_oauth_token=${{ secrets.GH_OAUTH_TOKEN }}"
+            -var="codestar_connection_arn=${{ secrets.CODESTAR_CONNECTION_ARN }}"
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
