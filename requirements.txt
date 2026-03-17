@@ -1,0 +1,9 @@
+boto3
+sagemaker
+polars
+pandas
+numpy
+lightgbm
+scikit-learn
+joblib
+s3fs
