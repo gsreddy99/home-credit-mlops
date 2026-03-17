@@ -1,43 +1,51 @@
 import os
 import json
-
-import boto3
 import joblib
 import pandas as pd
-from sklearn.metrics import roc_auc_score
+import boto3
+from io import BytesIO
 
+def load_from_s3(bucket, key):
+    s3 = boto3.client("s3")
+    obj = s3.get_object(Bucket=bucket, Key=key)
+    return BytesIO(obj["Body"].read())
 
 def main():
-    bucket = os.environ.get("BUCKET", "sg-home-credit")
-    silver_prefix = os.environ.get("SILVER_PREFIX", "home-credit/silver")
-    gold_prefix = os.environ.get("GOLD_PREFIX", "home-credit/gold")
-    execution_id = os.environ.get("EXECUTION_ID", "local-execution")
+    bucket = os.environ["BUCKET"]
 
-    # Load data
-    train_csv = f"s3://{bucket}/{silver_prefix}/train/train.csv"
-    df_train = pd.read_csv(train_csv)
+    # Load existing model from S3
+    model_key = "home-credit/model/aiml_model.pkl"
+    model_buf = load_from_s3(bucket, model_key)
+    model = joblib.load(model_buf)
 
-    X = df_train.drop(columns=["target", "case_id", "WEEK_NUM"])
-    y = df_train["target"]
+    # Load preprocessed test CSV
+    test_path = f"s3://{bucket}/home-credit/silver/test/test.csv"
+    df_test = pd.read_csv(test_path)
 
-    # Load model (in SageMaker Processing, you'd mount model artifact;
-    # here we assume it's available locally)
-    model_path = os.environ.get("MODEL_PATH", "/opt/ml/model/voting_model.pkl")
-    model = joblib.load(model_path)
+    X_test = df_test.drop(columns=["WEEK_NUM"])
+    X_test = X_test.set_index("case_id")
 
-    y_pred = model.predict_proba(X)[:, 1]
-    auc = roc_auc_score(y, y_pred)
+    y_pred = model.predict_proba(X_test)[:, 1]
 
-    s3 = boto3.client("s3")
-    eval_prefix = f"{gold_prefix}/evaluation/{execution_id}/"
-    # create prefix marker if needed
-    resp = s3.list_objects_v2(Bucket=bucket, Prefix=eval_prefix, MaxKeys=1)
-    if "Contents" not in resp:
-        s3.put_object(Bucket=bucket, Key=eval_prefix)
+    # Load sample submission from S3
+    sub_key = "home-credit/model/sample_submission.csv"
+    sub_buf = load_from_s3(bucket, sub_key)
+    df_subm = pd.read_csv(sub_buf).set_index("case_id")
 
-    key = f"{eval_prefix}evaluation.json"
-    s3.put_object(Bucket=bucket, Key=key, Body=json.dumps({"auc": auc}))
+    df_subm["score"] = y_pred
 
+    # Write metrics.json
+    metrics = {
+        "mean_score": float(y_pred.mean()),
+        "max_score": float(y_pred.max()),
+        "min_score": float(y_pred.min()),
+    }
+
+    os.makedirs("/opt/ml/processing/evaluation", exist_ok=True)
+    with open("/opt/ml/processing/evaluation/metrics.json", "w") as f:
+        json.dump(metrics, f)
+
+    print("Evaluation complete.")
 
 if __name__ == "__main__":
     main()

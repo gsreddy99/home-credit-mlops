@@ -3,24 +3,20 @@ version: 0.2
 phases:
   install:
     commands:
-      - echo "Upgrading pip and installing SageMaker SDK..."
       - pip install --upgrade pip
-      - pip install --upgrade "sagemaker>=2.200.0" boto3 scikit-learn
+      - pip install --upgrade sagemaker boto3 pandas polars joblib scikit-learn
 
   pre_build:
     commands:
       - echo "Environment:"
       - python --version
       - pip show sagemaker
-      - echo "SAGEMAKER_ROLE_ARN=$SAGEMAKER_ROLE_ARN"
-      - echo "BUCKET=$BUCKET"
-      - echo "AWS_REGION=$AWS_REGION"
 
   build:
     commands:
-      - echo "Updating SageMaker Pipeline definition..."
+      - echo "Updating SageMaker Pipeline..."
       - python src/pipeline.py --update
-      - echo "Starting SageMaker Pipeline execution..."
+      - echo "Running SageMaker Pipeline..."
       - python src/pipeline.py --run
 
 artifacts:

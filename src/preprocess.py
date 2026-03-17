@@ -1,137 +1,174 @@
 import os
-import io
-from glob import glob
-
 import boto3
 import polars as pl
-import pandas as pd
+from io import BytesIO
+from utils.feature_utils import Pipeline, Aggregator
 
-from utils.feature_utils import Pipeline, Aggregator, feature_eng
+# -----------------------------
+# S3 Helpers
+# -----------------------------
+def read_parquet_s3_lazy(bucket, key):
+    return pl.scan_parquet(f"s3://{bucket}/{key}")
 
-s3 = boto3.client("s3")
+def list_s3_files(bucket, prefix):
+    s3 = boto3.client("s3")
+    resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    return [c["Key"] for c in resp.get("Contents", []) if c["Key"].endswith(".parquet")]
 
+# -----------------------------
+# Depth-based loaders (lazy)
+# -----------------------------
+def load_depth_group_lazy(bucket, files, depth=None):
+    dfs = []
+    for f in files:
+        df = read_parquet_s3_lazy(bucket, f)
+        df = df.pipe(Pipeline.set_table_dtypes)
 
-def prefix_exists(bucket: str, prefix: str) -> bool:
-    resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
-    return "Contents" in resp
+        if depth in [1, 2]:
+            df = df.groupby("case_id").agg(Aggregator.get_exprs(df))
 
+        dfs.append(df)
+    return dfs
 
-def save_csv_to_s3(df: pd.DataFrame, bucket: str, key: str):
-    buf = io.StringIO()
-    df.to_csv(buf, index=False)
-    s3.put_object(Bucket=bucket, Key=key, Body=buf.getvalue())
+# -----------------------------
+# Feature Engineering (lazy)
+# -----------------------------
+def feature_eng_lazy(df_base, depth_0, depth_1, depth_2):
+    df = df_base.with_columns([
+        pl.col("date_decision").dt.month().alias("month_decision"),
+        pl.col("date_decision").dt.weekday().alias("weekday_decision"),
+    ])
 
+    for i, d in enumerate(depth_0 + depth_1 + depth_2):
+        df = df.join(d, on="case_id", how="left", suffix=f"_{i}")
 
-def read_file(path: str, depth=None) -> pl.DataFrame:
-    df = pl.read_parquet(path)
-    df = df.pipe(Pipeline.set_table_dtypes)
-    if depth in [1, 2]:
-        df = df.group_by("case_id").agg(Aggregator.get_exprs(df))
+    df = df.pipe(Pipeline.handle_dates)
     return df
 
-
-def read_files(regex_path: str, depth=None) -> pl.DataFrame:
-    chunks = []
-    for path in glob(regex_path):
-        df = pl.read_parquet(path)
-        df = df.pipe(Pipeline.set_table_dtypes)
-        if depth in [1, 2]:
-            df = df.group_by("case_id").agg(Aggregator.get_exprs(df))
-        chunks.append(df)
-    df = pl.concat(chunks, how="vertical_relaxed")
-    return df.unique(subset=["case_id"])
-
-
-def to_pandas(df_data: pl.DataFrame) -> pd.DataFrame:
-    df_data = df_data.to_pandas()
-    cat_cols = list(df_data.select_dtypes("object").columns)
-    if cat_cols:
-        df_data[cat_cols] = df_data[cat_cols].astype("category")
-    return df_data
-
-
+# -----------------------------
+# Main Preprocess
+# -----------------------------
 def main():
-    bucket = os.environ.get("BUCKET", "sg-home-credit")
-    bronze_prefix = os.environ.get("BRONZE_PREFIX", "home-credit/bronze")
-    silver_prefix = os.environ.get("SILVER_PREFIX", "home-credit/silver")
+    bucket = os.environ["BUCKET"]
 
-    train_base = f"s3://{bucket}/{bronze_prefix}/train/train_base.parquet"
-    test_base = f"s3://{bucket}/{bronze_prefix}/test/test_base.parquet"
+    # -------------------------
+    # TRAIN FILE GROUPING
+    # -------------------------
+    train_prefix = "home-credit/bronze/train"
 
-    # ---- TRAIN ----
-    train_dir = f"s3://{bucket}/{bronze_prefix}/train/"
+    train_base = f"{train_prefix}/train_base.parquet"
 
-    train_data_store = {
-        "df_base": read_file(train_base),
-        "depth_0": [
-            read_file(f"{train_dir}train_static_cb_0.parquet"),
-            read_files(f"{train_dir}train_static_0_*.parquet"),
-        ],
-        "depth_1": [
-            read_files(f"{train_dir}train_applprev_1_*.parquet", 1),
-            read_file(f"{train_dir}train_tax_registry_a_1.parquet", 1),
-            read_file(f"{train_dir}train_tax_registry_b_1.parquet", 1),
-            read_file(f"{train_dir}train_tax_registry_c_1.parquet", 1),
-            read_files(f"{train_dir}train_credit_bureau_a_1_*.parquet", 1),
-            read_file(f"{train_dir}train_credit_bureau_b_1.parquet", 1),
-            read_file(f"{train_dir}train_other_1.parquet", 1),
-            read_file(f"{train_dir}train_person_1.parquet", 1),
-            read_file(f"{train_dir}train_deposit_1.parquet", 1),
-            read_file(f"{train_dir}train_debitcard_1.parquet", 1),
-        ],
-        "depth_2": [
-            read_file(f"{train_dir}train_credit_bureau_b_2.parquet", 2),
-            read_files(f"{train_dir}train_credit_bureau_a_2_*.parquet", 2),
-        ],
-    }
+    depth0_train = [
+        f"{train_prefix}/train_static_cb_0.parquet",
+        f"{train_prefix}/train_person_1.parquet",
+        f"{train_prefix}/train_person_2.parquet",
+        f"{train_prefix}/train_other_1.parquet",
+        f"{train_prefix}/train_deposit_1.parquet",
+        f"{train_prefix}/train_debitcard_1.parquet",
+    ]
 
-    df_train = feature_eng(**train_data_store)
-    df_train = df_train.pipe(Pipeline.filter_cols)
-    df_train = to_pandas(df_train)
+    depth1_train = [
+        f"{train_prefix}/train_applprev_1_0.parquet",
+        f"{train_prefix}/train_tax_registry_a_1.parquet",
+        f"{train_prefix}/train_tax_registry_b_1.parquet",
+        f"{train_prefix}/train_tax_registry_c_1.parquet",
+        f"{train_prefix}/train_credit_bureau_b_1.parquet",
+    ]
 
-    silver_train_prefix = f"{silver_prefix}/train/"
-    if not prefix_exists(bucket, silver_train_prefix):
-        s3.put_object(Bucket=bucket, Key=silver_train_prefix)
+    depth2_train = [
+        f"{train_prefix}/train_applprev_2.parquet",
+        f"{train_prefix}/train_credit_bureau_b_2.parquet",
+    ]
 
-    save_csv_to_s3(df_train, bucket, f"{silver_prefix}/train/train.csv")
+    depth2_train += [
+        f for f in list_s3_files(bucket, train_prefix)
+        if "train_credit_bureau_a_2_" in f
+    ]
 
-    # ---- TEST ----
-    test_dir = f"s3://{bucket}/{bronze_prefix}/test/"
+    # -------------------------
+    # TEST FILE GROUPING
+    # -------------------------
+    test_prefix = "home-credit/bronze/test"
 
-    test_data_store = {
-        "df_base": read_file(test_base),
-        "depth_0": [
-            read_file(f"{test_dir}test_static_cb_0.parquet"),
-            read_files(f"{test_dir}test_static_0_*.parquet"),
-        ],
-        "depth_1": [
-            read_files(f"{test_dir}test_applprev_1_*.parquet", 1),
-            read_file(f"{test_dir}test_tax_registry_a_1.parquet", 1),
-            read_file(f"{test_dir}test_tax_registry_b_1.parquet", 1),
-            read_file(f"{test_dir}test_tax_registry_c_1.parquet", 1),
-            read_files(f"{test_dir}test_credit_bureau_a_1_*.parquet", 1),
-            read_file(f"{test_dir}test_credit_bureau_b_1.parquet", 1),
-            read_file(f"{test_dir}test_other_1.parquet", 1),
-            read_file(f"{test_dir}test_person_1.parquet", 1),
-            read_file(f"{test_dir}test_deposit_1.parquet", 1),
-            read_file(f"{test_dir}test_debitcard_1.parquet", 1),
-        ],
-        "depth_2": [
-            read_file(f"{test_dir}test_credit_bureau_b_2.parquet", 2),
-            read_files(f"{test_dir}test_credit_bureau_a_2_*.parquet", 2),
-        ],
-    }
+    test_base = f"{test_prefix}/test_base.parquet"
 
-    df_test = feature_eng(**test_data_store)
-    # align columns with train (drop target if present)
+    depth0_test = [
+        f"{test_prefix}/test_static_cb_0.parquet",
+        f"{test_prefix}/test_static_0_0.parquet",
+        f"{test_prefix}/test_static_0_1.parquet",
+        f"{test_prefix}/test_static_0_2.parquet",
+        f"{test_prefix}/test_person_1.parquet",
+        f"{test_prefix}/test_person_2.parquet",
+        f"{test_prefix}/test_other_1.parquet",
+        f"{test_prefix}/test_deposit_1.parquet",
+        f"{test_prefix}/test_debitcard_1.parquet",
+    ]
+
+    depth1_test = [
+        f"{test_prefix}/test_tax_registry_a_1.parquet",
+        f"{test_prefix}/test_tax_registry_b_1.parquet",
+        f"{test_prefix}/test_tax_registry_c_1.parquet",
+        f"{test_prefix}/test_credit_bureau_b_1.parquet",
+    ]
+
+    depth1_test += [
+        f for f in list_s3_files(bucket, test_prefix)
+        if "test_credit_bureau_a_1_" in f
+    ]
+
+    depth2_test = [
+        f"{test_prefix}/test_credit_bureau_b_2.parquet",
+    ]
+
+    depth2_test += [
+        f for f in list_s3_files(bucket, test_prefix)
+        if "test_credit_bureau_a_2_" in f
+    ]
+
+    # -------------------------
+    # LOAD BASE FILES (lazy)
+    # -------------------------
+    df_train_base = read_parquet_s3_lazy(bucket, train_base).pipe(Pipeline.set_table_dtypes)
+    df_test_base = read_parquet_s3_lazy(bucket, test_base).pipe(Pipeline.set_table_dtypes)
+
+    # -------------------------
+    # LOAD DEPTH GROUPS (lazy)
+    # -------------------------
+    depth0_train = load_depth_group_lazy(bucket, depth0_train, depth=None)
+    depth1_train = load_depth_group_lazy(bucket, depth1_train, depth=1)
+    depth2_train = load_depth_group_lazy(bucket, depth2_train, depth=2)
+
+    depth0_test = load_depth_group_lazy(bucket, depth0_test, depth=None)
+    depth1_test = load_depth_group_lazy(bucket, depth1_test, depth=1)
+    depth2_test = load_depth_group_lazy(bucket, depth2_test, depth=2)
+
+    # -------------------------
+    # FEATURE ENGINEERING (lazy)
+    # -------------------------
+    df_train = feature_eng_lazy(df_train_base, depth0_train, depth1_train, depth2_train)
+    df_test = feature_eng_lazy(df_test_base, depth0_test, depth1_test, depth2_test)
+
+    # -------------------------
+    # FILTER + ALIGN COLUMNS
+    # -------------------------
+    df_train = df_train.collect()
+    df_train = Pipeline.filter_cols(df_train)
+
+    df_test = df_test.collect()
     df_test = df_test.select([c for c in df_train.columns if c != "target"])
-    df_test = to_pandas(df_test)
 
-    silver_test_prefix = f"{silver_prefix}/test/"
-    if not prefix_exists(bucket, silver_test_prefix):
-        s3.put_object(Bucket=bucket, Key=silver_test_prefix)
+    # -------------------------
+    # WRITE OUTPUTS
+    # -------------------------
+    train_out = f"s3://{bucket}/home-credit/silver/train/train.csv"
+    test_out = f"s3://{bucket}/home-credit/silver/test/test.csv"
 
-    save_csv_to_s3(df_test, bucket, f"{silver_prefix}/test/test.csv")
+    df_train.write_csv(train_out)
+    df_test.write_csv(test_out)
+
+    print("Saved:")
+    print(train_out)
+    print(test_out)
 
 
 if __name__ == "__main__":
