@@ -49,6 +49,10 @@ resource "aws_iam_role_policy" "sagemaker_policy" {
 resource "aws_iam_role" "homecredit_codebuild_role" {
   name = "homecredit-codebuild-role"
 
+  lifecycle {
+    create_before_destroy = true
+  }
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
