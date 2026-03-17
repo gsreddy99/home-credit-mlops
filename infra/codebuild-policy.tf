@@ -5,9 +5,6 @@ resource "aws_iam_role_policy" "codebuild_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # ---------------------------------------------------
-      # S3 access to your bucket (sg-home-credit)
-      # ---------------------------------------------------
       {
         Effect = "Allow"
         Action = [
@@ -20,10 +17,6 @@ resource "aws_iam_role_policy" "codebuild_policy" {
           "arn:aws:s3:::sg-home-credit/*"
         ]
       },
-
-      # ---------------------------------------------------
-      # SageMaker Pipeline operations
-      # ---------------------------------------------------
       {
         Effect = "Allow"
         Action = [
@@ -36,19 +29,11 @@ resource "aws_iam_role_policy" "codebuild_policy" {
         ]
         Resource = "*"
       },
-
-      # ---------------------------------------------------
-      # Allow CodeBuild to pass the SageMaker execution role
-      # ---------------------------------------------------
       {
         Effect = "Allow"
         Action = "iam:PassRole"
         Resource = "arn:aws:iam::943938400093:role/homecredit-sagemaker-execution"
       },
-
-      # ---------------------------------------------------
-      # CloudWatch Logs
-      # ---------------------------------------------------
       {
         Effect = "Allow"
         Action = [
