@@ -2,11 +2,19 @@ name: Terraform Deploy
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: infra
 
     steps:
       - name: Checkout repository
@@ -24,11 +32,22 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Init
-        run: terraform -chdir=infra init
+      - name: Terraform Format Check
+        run: terraform fmt -check
 
-      - name: Terraform Apply
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
         run: |
-          terraform -chdir=infra apply -auto-approve \
+          terraform plan \
+            -input=false \
+            -out=tfplan \
             -var="github_owner=${{ github.repository_owner }}" \
             -var="github_oauth_token=${{ secrets.GH_OAUTH_TOKEN }}"
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
