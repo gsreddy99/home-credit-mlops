@@ -1,8 +1,8 @@
 terraform {
   backend "s3" {
-    bucket         = "my-terraform-state-bucket"
-    key            = "infra/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "terraform-locks"
+    bucket       = "sg-home-credit-tfstate"   # your backend bucket
+    key          = "infra/terraform.tfstate"
+    region       = "us-east-1"                # MUST match actual bucket region
+    use_lockfile = true
   }
 }
