@@ -26,6 +26,7 @@ jobs:
         run: terraform -chdir=infra init
 
       - name: Terraform Apply
-        run: terraform -chdir=infra apply -auto-approve \
-          -var="github_owner=${{ github.repository_owner }}" \
-          -var="github_oauth_token=${{ secrets.GH_OAUTH_TOKEN }}"
+        run: |
+          terraform -chdir=infra apply -auto-approve \
+            -var="github_owner=${{ github.repository_owner }}" \
+            -var="github_oauth_token=${{ secrets.GH_OAUTH_TOKEN }}"
