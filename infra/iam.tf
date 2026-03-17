@@ -1,7 +1,7 @@
 # filename: iam.tf
 
 resource "aws_iam_role" "sagemaker_execution_role" {
-  name = "sagemaker-execution-role"
+  name = "homecredit-sagemaker-execution-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -16,7 +16,7 @@ resource "aws_iam_role" "sagemaker_execution_role" {
 }
 
 resource "aws_iam_policy" "sagemaker_policy" {
-  name = "sagemaker-batch-policy"
+  name = "homecredit-sagemaker-batch-policy"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -29,8 +29,8 @@ resource "aws_iam_policy" "sagemaker_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          "arn:aws:s3:::sg-home-credit",
-          "arn:aws:s3:::sg-home-credit/*"
+          "arn:aws:s3:::${var.bucket_name}",
+          "arn:aws:s3:::${var.bucket_name}/*"
         ]
       },
       {
