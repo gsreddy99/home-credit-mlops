@@ -33,11 +33,16 @@ jobs:
             -var="github_owner=${{ github.repository_owner }}" \
             -var="github_oauth_token=${{ secrets.GH_OAUTH_TOKEN }}"
 
-      # ⭐ CRITICAL FIX: Copy state file into repo before committing
+      # ⭐ CRITICAL FIX: Copy state file from Terraform working directory into repo
       - name: Copy Terraform state into repo
         run: |
-          cp infra/terraform.tfstate ./infra/terraform.tfstate || true
-          cp infra/terraform.tfstate.backup ./infra/terraform.tfstate.backup || true
+          if [ -f infra/terraform.tfstate ]; then
+            cp infra/terraform.tfstate ./infra/terraform.tfstate
+          fi
+
+          if [ -f infra/terraform.tfstate.backup ]; then
+            cp infra/terraform.tfstate.backup ./infra/terraform.tfstate.backup
+          fi
 
       - name: Commit Terraform state
         run: |
