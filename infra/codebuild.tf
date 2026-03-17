@@ -37,7 +37,7 @@ resource "aws_codebuild_project" "homecredit" {
     buildspec       = "buildspec.yml"
 
     auth {
-      type     = "CODESTAR"
+      type     = "CODECONNECTIONS"
       resource = var.codestar_connection_arn
     }
   }
