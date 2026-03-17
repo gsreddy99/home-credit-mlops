@@ -1,5 +1,3 @@
-# filename: iam.tf
-
 resource "aws_iam_role" "sagemaker_execution_role" {
   name = "homecredit-sagemaker-execution-role"
 

@@ -17,7 +17,7 @@ variable "github_repo" {
   default = "home-credit-mlops"
 }
 
-variable "github_oauth_token" {
-  type      = string
-  sensitive = true
+variable "codestar_connection_arn" {
+  type = string
+  description = "AWS CodeStar connection ARN for GitHub"
 }

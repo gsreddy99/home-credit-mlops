@@ -1,5 +1,3 @@
-# filename: codebuild.tf
-
 resource "aws_codebuild_project" "homecredit" {
   name          = "homecredit-batch-pipeline"
   description   = "Runs SageMaker batch pipeline for Home Credit"
@@ -37,9 +35,10 @@ resource "aws_codebuild_project" "homecredit" {
     location        = "https://github.com/${var.github_owner}/${var.github_repo}.git"
     git_clone_depth = 1
     buildspec       = "buildspec.yml"
+
     auth {
-      type     = "OAUTH"
-      resource = var.github_oauth_token
+      type     = "CODESTAR"
+      resource = var.codestar_connection_arn
     }
   }
 

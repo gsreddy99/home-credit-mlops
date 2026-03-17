@@ -1,5 +1,3 @@
-# filename: codebuild-policy.tf
-
 resource "aws_iam_role" "homecredit_codebuild_role" {
   name = "homecredit-codebuild-role"
 
