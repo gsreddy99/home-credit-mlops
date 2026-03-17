@@ -4,7 +4,7 @@ phases:
   install:
     commands:
       - pip install --upgrade pip
-      - pip install --upgrade sagemaker boto3 pandas polars joblib scikit-learn
+      - pip install "sagemaker==2.218.0" boto3 pandas polars joblib scikit-learn
 
   pre_build:
     commands:
