@@ -1,24 +1,15 @@
+# filename: buildspec.yml
+
 version: 0.2
 
 phases:
   install:
     commands:
-      - pip install --upgrade pip
-      - pip install "sagemaker==2.218.0" boto3 pandas polars joblib scikit-learn pytz
-
-  pre_build:
-    commands:
-      - echo "Environment:"
-      - python --version
-      - pip show sagemaker
+      - pip install sagemaker boto3 pandas joblib
 
   build:
     commands:
-      - echo "Updating SageMaker Pipeline..."
+      - echo "Updating SageMaker pipeline..."
       - python src/pipeline.py --update
-      - echo "Running SageMaker Pipeline..."
+      - echo "Running SageMaker pipeline..."
       - python src/pipeline.py --run
-
-artifacts:
-  files:
-    - '**/*'

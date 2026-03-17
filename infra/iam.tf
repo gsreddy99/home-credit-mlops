@@ -1,8 +1,7 @@
-# ---------------------------------------------------
-# SageMaker Execution Role
-# ---------------------------------------------------
-resource "aws_iam_role" "sagemaker_execution" {
-  name = "homecredit-sagemaker-execution"
+# filename: iam.tf
+
+resource "aws_iam_role" "sagemaker_execution_role" {
+  name = "sagemaker-execution-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -16,18 +15,22 @@ resource "aws_iam_role" "sagemaker_execution" {
   })
 }
 
-resource "aws_iam_role_policy" "sagemaker_policy" {
-  role = aws_iam_role.sagemaker_execution.id
+resource "aws_iam_policy" "sagemaker_policy" {
+  name = "sagemaker-batch-policy"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
-        Action = ["s3:*"]
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
         Resource = [
-          aws_s3_bucket.home_credit.arn,
-          "${aws_s3_bucket.home_credit.arn}/*"
+          "arn:aws:s3:::sg-home-credit",
+          "arn:aws:s3:::sg-home-credit/*"
         ]
       },
       {
@@ -38,73 +41,24 @@ resource "aws_iam_role_policy" "sagemaker_policy" {
           "logs:PutLogEvents"
         ]
         Resource = "*"
-      }
-    ]
-  })
-}
-
-# ---------------------------------------------------
-# CodeBuild Role
-# ---------------------------------------------------
-resource "aws_iam_role" "homecredit_codebuild_role" {
-  name = "homecredit-codebuild-role"
-
-  lifecycle {
-    create_before_destroy = true
-  }
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "codebuild.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-# ---------------------------------------------------
-# CodePipeline Role
-# ---------------------------------------------------
-resource "aws_iam_role" "codepipeline_role" {
-  name = "homecredit-codepipeline-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "codepipeline.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "codepipeline_policy" {
-  role = aws_iam_role.codepipeline_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "codebuild:StartBuild",
-          "codebuild:BatchGetBuilds"
-        ]
-        Resource = "*"
       },
       {
         Effect = "Allow"
-        Action = ["s3:*"]
-        Resource = [
-          aws_s3_bucket.home_credit.arn,
-          "${aws_s3_bucket.home_credit.arn}/*"
+        Action = [
+          "sagemaker:CreateProcessingJob",
+          "sagemaker:DescribeProcessingJob",
+          "sagemaker:CreatePipeline",
+          "sagemaker:UpdatePipeline",
+          "sagemaker:StartPipelineExecution",
+          "sagemaker:DescribePipelineExecution"
         ]
+        Resource = "*"
       }
     ]
   })
+}
+
+resource "aws_iam_role_policy_attachment" "attach_sagemaker_policy" {
+  role       = aws_iam_role.sagemaker_execution_role.name
+  policy_arn = aws_iam_policy.sagemaker_policy.arn
 }
