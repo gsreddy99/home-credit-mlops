@@ -3,7 +3,8 @@ version: 0.2
 phases:
   install:
     commands:
-      - pip install -r requirements.txt
+      - pip install --upgrade pip
+      - pip install --upgrade sagemaker boto3 scikit-learn
 
   build:
     commands:
