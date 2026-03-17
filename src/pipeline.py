@@ -14,11 +14,11 @@ def get_pipeline(region, role, bucket):
     session = PipelineSession(default_bucket=bucket)
 
     # -------------------------
-    # PREPROCESS STEP (FREE TIER)
+    # PREPROCESS STEP
     # -------------------------
     preprocess = SKLearnProcessor(
         framework_version="1.2-1",
-        instance_type="ml.t3.micro",     # FREE TIER
+        instance_type="ml.m5.large",     # VALID INSTANCE TYPE
         instance_count=1,
         role=role,
         sagemaker_session=session,
@@ -43,11 +43,11 @@ def get_pipeline(region, role, bucket):
     )
 
     # -------------------------
-    # EVALUATE STEP (FREE TIER)
+    # EVALUATE STEP
     # -------------------------
     evaluate = SKLearnProcessor(
         framework_version="1.2-1",
-        instance_type="ml.t3.micro",     # FREE TIER
+        instance_type="ml.m5.large",     # VALID INSTANCE TYPE
         instance_count=1,
         role=role,
         sagemaker_session=session,
