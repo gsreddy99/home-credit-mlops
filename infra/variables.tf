@@ -18,6 +18,6 @@ variable "github_repo" {
 }
 
 variable "codestar_connection_arn" {
-  type = string
+  type        = string
   description = "AWS CodeStar connection ARN for GitHub"
 }
