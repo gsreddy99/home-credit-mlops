@@ -9,12 +9,14 @@ resource "aws_codepipeline" "homecredit" {
 
   stage {
     name = "Source"
+
     action {
       name             = "GitHubSource"
       category         = "Source"
       owner            = "ThirdParty"
       provider         = "GitHub"
       version          = "1"
+      run_order        = 1
       output_artifacts = ["source_output"]
 
       configuration = {
@@ -28,13 +30,15 @@ resource "aws_codepipeline" "homecredit" {
 
   stage {
     name = "Build"
+
     action {
-      name             = "CodeBuild"
-      category         = "Build"
-      owner            = "AWS"
-      provider         = "CodeBuild"
-      version          = "1"
-      input_artifacts  = ["source_output"]
+      name            = "CodeBuild"
+      category        = "Build"
+      owner           = "AWS"
+      provider        = "CodeBuild"
+      version         = "1"
+      run_order       = 1
+      input_artifacts = ["source_output"]
 
       configuration = {
         ProjectName = aws_codebuild_project.homecredit.name
