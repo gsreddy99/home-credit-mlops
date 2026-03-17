@@ -32,19 +32,3 @@ jobs:
           terraform -chdir=infra apply -auto-approve \
             -var="github_owner=${{ github.repository_owner }}" \
             -var="github_oauth_token=${{ secrets.GH_OAUTH_TOKEN }}"
-
-      - name: Commit Terraform state
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add infra/terraform.tfstate infra/terraform.tfstate.backup || true
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update Terraform state [skip ci]"
-            git push
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_OAUTH_TOKEN }}
