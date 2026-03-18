@@ -1,4 +1,11 @@
 ###############################################
+# Variables (assumed to be declared elsewhere)
+# Make sure these exist in variables.tf or passed in:
+# - var.bucket_name
+# - var.codestar_connection_arn
+###############################################
+
+###############################################
 # SageMaker Execution Role
 ###############################################
 
@@ -8,11 +15,9 @@ resource "aws_iam_role" "sagemaker_execution_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "sagemaker.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "sagemaker.amazonaws.com" }
+      Action    = "sts:AssumeRole"
     }]
   })
 }
@@ -66,7 +71,7 @@ resource "aws_iam_role_policy_attachment" "attach_sagemaker_policy" {
 }
 
 ###############################################
-# CodeBuild Role
+# CodeBuild Role & Policy
 ###############################################
 
 resource "aws_iam_role" "homecredit_codebuild_role" {
@@ -75,11 +80,9 @@ resource "aws_iam_role" "homecredit_codebuild_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "codebuild.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "codebuild.amazonaws.com" }
+      Action    = "sts:AssumeRole"
     }]
   })
 }
@@ -90,14 +93,18 @@ resource "aws_iam_policy" "codebuild_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # S3 Access
+      # ────────────────────────────────────────────────
+      # S3 access for artifacts, sources, logs upload
+      # ────────────────────────────────────────────────
       {
         Effect = "Allow"
         Action = [
           "s3:GetObject",
+          "s3:GetObjectVersion",
           "s3:PutObject",
+          "s3:PutObjectAcl",
           "s3:ListBucket",
-          "s3:GetBucketAcl", # Sometimes needed for artifact upload checks
+          "s3:GetBucketAcl",
           "s3:GetBucketLocation"
         ]
         Resource = [
@@ -106,7 +113,9 @@ resource "aws_iam_policy" "codebuild_policy" {
         ]
       },
 
-      # CloudWatch Logs - tightened & expanded actions for reliability
+      # ────────────────────────────────────────────────
+      # CloudWatch Logs – this is the critical fix block
+      # ────────────────────────────────────────────────
       {
         Effect = "Allow"
         Action = [
@@ -117,32 +126,37 @@ resource "aws_iam_policy" "codebuild_policy" {
           "logs:DescribeLogStreams"
         ]
         Resource = [
-          "arn:aws:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/*",
-          "arn:aws:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/*:*"
+          "arn:aws:logs:*:*:log-group:/aws/codebuild/*",
+          "arn:aws:logs:*:*:log-group:/aws/codebuild/*:*"
         ]
       },
 
-      # CodeBuild self permissions (start & get status)
+      # ────────────────────────────────────────────────
+      # CodeBuild self-management (start, get status, etc.)
+      # ────────────────────────────────────────────────
       {
         Effect = "Allow"
         Action = [
           "codebuild:BatchGetBuilds",
           "codebuild:StartBuild",
           "codebuild:StopBuild",
-          "codebuild:BatchGetReportGroups",
-          "codebuild:BatchGetReports"
+          "codebuild:GetResourcePolicy"
         ]
         Resource = "*"
       },
 
-      # Allow passing the SageMaker execution role to jobs
+      # ────────────────────────────────────────────────
+      # PassRole – required to pass SageMaker role to jobs
+      # ────────────────────────────────────────────────
       {
         Effect   = "Allow"
         Action   = "iam:PassRole"
         Resource = aws_iam_role.sagemaker_execution_role.arn
       },
 
-      # CodeStar / GitHub connection
+      # ────────────────────────────────────────────────
+      # CodeStar Connections (GitHub / Bitbucket)
+      # ────────────────────────────────────────────────
       {
         Effect = "Allow"
         Action = [
@@ -156,7 +170,6 @@ resource "aws_iam_policy" "codebuild_policy" {
   })
 }
 
-# Attach custom policy
 resource "aws_iam_role_policy_attachment" "attach_codebuild_policy" {
   role       = aws_iam_role.homecredit_codebuild_role.name
   policy_arn = aws_iam_policy.codebuild_policy.arn
