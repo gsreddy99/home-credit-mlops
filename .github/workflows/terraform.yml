@@ -83,3 +83,7 @@ jobs:
       # ---------------------------------------------------------
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
+
+      - name: Start CodeBuild
+        run: |
+          aws codebuild start-build --project-name homecredit-batch-pipeline
