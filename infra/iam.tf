@@ -85,7 +85,7 @@ resource "aws_iam_role" "homecredit_codebuild_role" {
 }
 
 resource "aws_iam_policy" "codebuild_policy" {
-  name = "homecredit-codebuild-policy"
+  name = "homecredit-codebuild-policy-updated"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -138,7 +138,9 @@ resource "aws_iam_policy" "codebuild_policy" {
       {
         Effect = "Allow"
         Action = [
-          "codeconnections:UseConnection"
+          "codeconnections:UseConnection",
+          "codeconnections:GetConnectionToken",
+          "codeconnections:GetConnection"
         ]
         Resource = var.codestar_connection_arn
       }
