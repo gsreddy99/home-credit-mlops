@@ -41,6 +41,9 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      - name: Destroy existing CodeBuild project (if any)
+        run: terraform destroy -target=aws_codebuild_project.homecredit -auto-approve || echo "No existing CodeBuild project to destroy"
+
       - name: Terraform Plan
         run: |
           terraform plan \
