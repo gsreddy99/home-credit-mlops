@@ -1,11 +1,4 @@
 ###############################################
-# Variables (assumed to be declared elsewhere)
-# Make sure these exist in variables.tf or passed in:
-# - var.bucket_name
-# - var.codestar_connection_arn
-###############################################
-
-###############################################
 # SageMaker Execution Role
 ###############################################
 
@@ -28,6 +21,7 @@ resource "aws_iam_policy" "sagemaker_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      # S3 access for pipeline inputs/outputs
       {
         Effect = "Allow"
         Action = [
@@ -40,6 +34,8 @@ resource "aws_iam_policy" "sagemaker_policy" {
           "arn:aws:s3:::${var.bucket_name}/*"
         ]
       },
+
+      # CloudWatch logs for processing jobs
       {
         Effect = "Allow"
         Action = [
@@ -49,6 +45,8 @@ resource "aws_iam_policy" "sagemaker_policy" {
         ]
         Resource = "*"
       },
+
+      # SageMaker processing + pipeline operations
       {
         Effect = "Allow"
         Action = [
@@ -57,7 +55,8 @@ resource "aws_iam_policy" "sagemaker_policy" {
           "sagemaker:CreatePipeline",
           "sagemaker:UpdatePipeline",
           "sagemaker:StartPipelineExecution",
-          "sagemaker:DescribePipelineExecution"
+          "sagemaker:DescribePipelineExecution",
+          "sagemaker:DescribePipeline"
         ]
         Resource = "*"
       }
@@ -71,7 +70,7 @@ resource "aws_iam_role_policy_attachment" "attach_sagemaker_policy" {
 }
 
 ###############################################
-# CodeBuild Role & Policy
+# CodeBuild Role
 ###############################################
 
 resource "aws_iam_role" "homecredit_codebuild_role" {
@@ -87,15 +86,20 @@ resource "aws_iam_role" "homecredit_codebuild_role" {
   })
 }
 
+###############################################
+# CodeBuild Policy (FINAL, COMPLETE)
+###############################################
+
 resource "aws_iam_policy" "codebuild_policy" {
   name = "homecredit-codebuild-policy-updated"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # ────────────────────────────────────────────────
-      # S3 access for artifacts, sources, logs upload
-      # ────────────────────────────────────────────────
+
+      ############################################################
+      # S3 access for source, artifacts, and pipeline data
+      ############################################################
       {
         Effect = "Allow"
         Action = [
@@ -113,9 +117,9 @@ resource "aws_iam_policy" "codebuild_policy" {
         ]
       },
 
-      # ────────────────────────────────────────────────
-      # CloudWatch Logs – this is the critical fix block
-      # ────────────────────────────────────────────────
+      ############################################################
+      # CloudWatch Logs for CodeBuild
+      ############################################################
       {
         Effect = "Allow"
         Action = [
@@ -131,9 +135,9 @@ resource "aws_iam_policy" "codebuild_policy" {
         ]
       },
 
-      # ────────────────────────────────────────────────
-      # CodeBuild self-management (start, get status, etc.)
-      # ────────────────────────────────────────────────
+      ############################################################
+      # CodeBuild self-management
+      ############################################################
       {
         Effect = "Allow"
         Action = [
@@ -145,18 +149,18 @@ resource "aws_iam_policy" "codebuild_policy" {
         Resource = "*"
       },
 
-      # ────────────────────────────────────────────────
-      # PassRole – required to pass SageMaker role to jobs
-      # ────────────────────────────────────────────────
+      ############################################################
+      # PassRole to SageMaker execution role
+      ############################################################
       {
         Effect   = "Allow"
         Action   = "iam:PassRole"
         Resource = aws_iam_role.sagemaker_execution_role.arn
       },
 
-      # ────────────────────────────────────────────────
-      # CodeStar Connections (GitHub / Bitbucket)
-      # ────────────────────────────────────────────────
+      ############################################################
+      # CodeStar Connections (GitHub)
+      ############################################################
       {
         Effect = "Allow"
         Action = [
@@ -165,6 +169,31 @@ resource "aws_iam_policy" "codebuild_policy" {
           "codeconnections:GetConnection"
         ]
         Resource = var.codestar_connection_arn
+      },
+
+      ############################################################
+      # SageMaker Pipeline Permissions (THE MISSING BLOCK)
+      ############################################################
+      {
+        Effect = "Allow"
+        Action = [
+          "sagemaker:CreatePipeline",
+          "sagemaker:UpdatePipeline",
+          "sagemaker:StartPipelineExecution",
+          "sagemaker:DescribePipeline",
+          "sagemaker:DescribePipelineExecution"
+        ]
+        Resource = "arn:aws:sagemaker:us-east-1:943938400093:pipeline/HomeCreditBatchPipeline"
+      },
+
+      # List operations must be wildcard
+      {
+        Effect = "Allow"
+        Action = [
+          "sagemaker:ListPipelines",
+          "sagemaker:ListPipelineExecutions"
+        ]
+        Resource = "*"
       }
     ]
   })
