@@ -42,27 +42,36 @@ jobs:
         run: terraform validate
 
       # ---------------------------------------------------------
-      # 🔍 PRINT THE ARN EXACTLY AS GITHUB ACTIONS SEES IT
+      # PRINT THE GITHUB SECRET (MASKED)
       # ---------------------------------------------------------
-      - name: Debug – Print CodeStar ARN
+      - name: Debug – Print GitHub Secret ARN (masked)
         env:
           CODESTAR_CONNECTION_ARN: ${{ secrets.CODESTAR_CONNECTION_ARN }}
         run: |
-          echo "🔎 GitHub Secret ARN:"
+          echo "GitHub Secret ARN (masked):"
           echo "$CODESTAR_CONNECTION_ARN"
 
       # ---------------------------------------------------------
-      # 🔍 PRINT THE ARN INSIDE TERRAFORM PLAN
+      # PRINT THE REAL ARN TERRAFORM IS USING (UNMASKED)
+      # ---------------------------------------------------------
+      - name: Debug – Print Terraform variable ARN (unmasked)
+        run: |
+          echo "Terraform sees this ARN:"
+          terraform console <<< 'var.codestar_connection_arn'
+
+      # ---------------------------------------------------------
+      # TERRAFORM PLAN
       # ---------------------------------------------------------
       - name: Terraform Plan
         run: |
-          echo "🔎 Terraform will receive ARN:"
-          echo "${{ secrets.CODESTAR_CONNECTION_ARN }}"
           terraform plan \
             -input=false \
             -out=tfplan \
             -var="github_owner=${{ github.repository_owner }}" \
             -var="codestar_connection_arn=${{ secrets.CODESTAR_CONNECTION_ARN }}"
 
+      # ---------------------------------------------------------
+      # TERRAFORM APPLY
+      # ---------------------------------------------------------
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
