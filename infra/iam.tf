@@ -90,13 +90,15 @@ resource "aws_iam_policy" "codebuild_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # S3 Access (kept your original)
+      # S3 Access
       {
         Effect = "Allow"
         Action = [
           "s3:GetObject",
           "s3:PutObject",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:GetBucketAcl", # Sometimes needed for artifact upload checks
+          "s3:GetBucketLocation"
         ]
         Resource = [
           "arn:aws:s3:::${var.bucket_name}",
@@ -104,7 +106,7 @@ resource "aws_iam_policy" "codebuild_policy" {
         ]
       },
 
-      # CloudWatch Logs - scoped more tightly (optional belt-and-suspenders with managed policy)
+      # CloudWatch Logs - tightened & expanded actions for reliability
       {
         Effect = "Allow"
         Action = [
@@ -115,31 +117,32 @@ resource "aws_iam_policy" "codebuild_policy" {
           "logs:DescribeLogStreams"
         ]
         Resource = [
-          "arn:aws:logs:*:*:log-group:/aws/codebuild/*",
-          "arn:aws:logs:*:*:log-group:/aws/codebuild/*:*"
+          "arn:aws:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/*",
+          "arn:aws:logs:*:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/*:*"
         ]
       },
 
-      # CodeBuild self permissions
+      # CodeBuild self permissions (start & get status)
       {
         Effect = "Allow"
         Action = [
           "codebuild:BatchGetBuilds",
-          "codebuild:StartBuild"
+          "codebuild:StartBuild",
+          "codebuild:StopBuild",
+          "codebuild:BatchGetReportGroups",
+          "codebuild:BatchGetReports"
         ]
         Resource = "*"
       },
 
-      # Allow CodeBuild to pass the SageMaker role
+      # Allow passing the SageMaker execution role to jobs
       {
-        Effect = "Allow"
-        Action = [
-          "iam:PassRole"
-        ]
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
         Resource = aws_iam_role.sagemaker_execution_role.arn
       },
 
-      # GitHub/CodeStar connection (kept as-is)
+      # CodeStar / GitHub connection
       {
         Effect = "Allow"
         Action = [
@@ -153,15 +156,8 @@ resource "aws_iam_policy" "codebuild_policy" {
   })
 }
 
-# Attach your custom policy
+# Attach custom policy
 resource "aws_iam_role_policy_attachment" "attach_codebuild_policy" {
   role       = aws_iam_role.homecredit_codebuild_role.name
   policy_arn = aws_iam_policy.codebuild_policy.arn
-}
-
-# Critical fix: Attach AWS managed policy for reliable CodeBuild + CloudWatch Logs permissions
-resource "aws_iam_role_policy_attachment" "attach_codebuild_base_managed" {
-  role       = aws_iam_role.homecredit_codebuild_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AWSCodeBuildBasePolicy" # Use this for minimal/reliable logging + build perms
-  # Alternative (broader console access): "arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess"
 }
