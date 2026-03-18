@@ -162,6 +162,6 @@ resource "aws_iam_role_policy_attachment" "attach_codebuild_policy" {
 # Critical fix: Attach AWS managed policy for reliable CodeBuild + CloudWatch Logs permissions
 resource "aws_iam_role_policy_attachment" "attach_codebuild_base_managed" {
   role       = aws_iam_role.homecredit_codebuild_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AWSCodeBuildBasePolicy"  # Use this for minimal/reliable logging + build perms
+  policy_arn = "arn:aws:iam::aws:policy/AWSCodeBuildBasePolicy" # Use this for minimal/reliable logging + build perms
   # Alternative (broader console access): "arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess"
 }
