@@ -41,14 +41,23 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      # 🔹 Debug: Print full CodeStar connection ARN
-      - name: Debug full CodeStar ARN
-        run: echo "Using CodeStar connection ARN: $CODESTAR_CONNECTION_ARN"
+      # ---------------------------------------------------------
+      # 🔍 PRINT THE ARN EXACTLY AS GITHUB ACTIONS SEES IT
+      # ---------------------------------------------------------
+      - name: Debug – Print CodeStar ARN
         env:
           CODESTAR_CONNECTION_ARN: ${{ secrets.CODESTAR_CONNECTION_ARN }}
+        run: |
+          echo "🔎 GitHub Secret ARN:"
+          echo "$CODESTAR_CONNECTION_ARN"
 
+      # ---------------------------------------------------------
+      # 🔍 PRINT THE ARN INSIDE TERRAFORM PLAN
+      # ---------------------------------------------------------
       - name: Terraform Plan
         run: |
+          echo "🔎 Terraform will receive ARN:"
+          echo "${{ secrets.CODESTAR_CONNECTION_ARN }}"
           terraform plan \
             -input=false \
             -out=tfplan \
