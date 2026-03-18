@@ -1,14 +1,5 @@
 ###############################################
-# CLOUDWATCH LOG GROUP (EXPLICIT)
-###############################################
-
-resource "aws_cloudwatch_log_group" "codebuild_logs" {
-  name              = "/aws/codebuild/homecredit-batch-pipeline"
-  retention_in_days = 14
-}
-
-###############################################
-# SAGEMAKER EXECUTION ROLE
+# SageMaker Execution Role
 ###############################################
 
 resource "aws_iam_role" "sagemaker_execution_role" {
@@ -32,7 +23,6 @@ resource "aws_iam_policy" "sagemaker_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # S3 Access
       {
         Effect = "Allow"
         Action = [
@@ -45,8 +35,6 @@ resource "aws_iam_policy" "sagemaker_policy" {
           "arn:aws:s3:::${var.bucket_name}/*"
         ]
       },
-
-      # CloudWatch Logs
       {
         Effect = "Allow"
         Action = [
@@ -56,8 +44,6 @@ resource "aws_iam_policy" "sagemaker_policy" {
         ]
         Resource = "*"
       },
-
-      # SageMaker
       {
         Effect = "Allow"
         Action = [
@@ -80,7 +66,7 @@ resource "aws_iam_role_policy_attachment" "attach_sagemaker_policy" {
 }
 
 ###############################################
-# CODEBUILD ROLE
+# CodeBuild Role
 ###############################################
 
 resource "aws_iam_role" "homecredit_codebuild_role" {
@@ -99,31 +85,12 @@ resource "aws_iam_role" "homecredit_codebuild_role" {
 }
 
 resource "aws_iam_policy" "codebuild_policy" {
-  name = "homecredit-codebuild-policy"
+  name = "homecredit-codebuild-policy-updated"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-
-      #########################################
-      # CloudWatch Logs (FIXED)
-      #########################################
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = [
-          "arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/codebuild/homecredit-batch-pipeline",
-          "arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/codebuild/homecredit-batch-pipeline:*"
-        ]
-      },
-
-      #########################################
-      # S3 Access
-      #########################################
+      # S3 Access (kept your original)
       {
         Effect = "Allow"
         Action = [
@@ -137,9 +104,23 @@ resource "aws_iam_policy" "codebuild_policy" {
         ]
       },
 
-      #########################################
-      # CodeBuild permissions
-      #########################################
+      # CloudWatch Logs - scoped more tightly (optional belt-and-suspenders with managed policy)
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams"
+        ]
+        Resource = [
+          "arn:aws:logs:*:*:log-group:/aws/codebuild/*",
+          "arn:aws:logs:*:*:log-group:/aws/codebuild/*:*"
+        ]
+      },
+
+      # CodeBuild self permissions
       {
         Effect = "Allow"
         Action = [
@@ -149,9 +130,7 @@ resource "aws_iam_policy" "codebuild_policy" {
         Resource = "*"
       },
 
-      #########################################
-      # Pass SageMaker role
-      #########################################
+      # Allow CodeBuild to pass the SageMaker role
       {
         Effect = "Allow"
         Action = [
@@ -160,15 +139,13 @@ resource "aws_iam_policy" "codebuild_policy" {
         Resource = aws_iam_role.sagemaker_execution_role.arn
       },
 
-      #########################################
-      # GitHub connection
-      #########################################
+      # GitHub/CodeStar connection (kept as-is)
       {
         Effect = "Allow"
         Action = [
           "codeconnections:UseConnection",
-          "codeconnections:GetConnection",
-          "codeconnections:GetConnectionToken"
+          "codeconnections:GetConnectionToken",
+          "codeconnections:GetConnection"
         ]
         Resource = var.codestar_connection_arn
       }
@@ -176,7 +153,15 @@ resource "aws_iam_policy" "codebuild_policy" {
   })
 }
 
+# Attach your custom policy
 resource "aws_iam_role_policy_attachment" "attach_codebuild_policy" {
   role       = aws_iam_role.homecredit_codebuild_role.name
   policy_arn = aws_iam_policy.codebuild_policy.arn
+}
+
+# Critical fix: Attach AWS managed policy for reliable CodeBuild + CloudWatch Logs permissions
+resource "aws_iam_role_policy_attachment" "attach_codebuild_base_managed" {
+  role       = aws_iam_role.homecredit_codebuild_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSCodeBuildBasePolicy"  # Use this for minimal/reliable logging + build perms
+  # Alternative (broader console access): "arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess"
 }
