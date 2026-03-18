@@ -35,6 +35,11 @@ jobs:
       - name: Terraform Format Check
         run: terraform fmt -check
 
+      - name: Debug – Print secret length
+        run: |
+          echo "Length of secret:"
+          echo -n "${{ secrets.CODESTAR_CONNECTION_ARN }}" | wc -c
+
       - name: Terraform Init
         run: terraform init -input=false
 
