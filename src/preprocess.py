@@ -1,6 +1,8 @@
 # src/preprocess.py
+
 import subprocess
-subprocess.run(["pip", "install", "polars", "lightgbm"], check=True)
+# Install ONLY polars if needed (safe, lightweight)
+subprocess.run(["pip", "install", "polars"], check=True)
 
 import argparse
 import os
@@ -83,7 +85,7 @@ class Aggregator:
 
 
 # -------------------------------------------------------------------------
-#  S3-aware file loaders (fixes glob issue)
+#  S3-aware file loaders
 # -------------------------------------------------------------------------
 
 def list_s3_parquet(bucket, prefix):
@@ -121,7 +123,6 @@ def feature_engineering(df_base, depth_0, depth_1, depth_2):
         pl.col("date_decision").dt.weekday().alias("weekday_decision"),
     ])
 
-    # Unique suffix per join to avoid DuplicateError
     for group_idx, group in enumerate([depth_0, depth_1, depth_2]):
         for table_idx, df_depth in enumerate(group):
             if df_depth is not None and df_depth.height > 0:
@@ -133,7 +134,7 @@ def feature_engineering(df_base, depth_0, depth_1, depth_2):
 
 
 def to_pandas(df: pl.DataFrame):
-    pdf = df.to_pandas()  # works with Pandas 1.1.3
+    pdf = df.to_pandas()
     cat_cols = pdf.select_dtypes(include=["object", "category"]).columns.tolist()
     pdf[cat_cols] = pdf[cat_cols].astype("category")
     return pdf, cat_cols
