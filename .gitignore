@@ -2,3 +2,4 @@
 /infra/.terraform.lock.hcl
 /infra/.terraform/
 /src/preprocess.txt
+/src/evaluate.txt
