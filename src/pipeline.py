@@ -4,19 +4,19 @@ import os
 import argparse
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.sklearn.processing import SKLearnProcessor
+from sagemaker.processing import ScriptProcessor, ProcessingOutput
 from sagemaker.workflow.steps import ProcessingStep
-import sagemaker.processing
 
 
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
 
     ###########################################################################
-    # 1) PREPROCESS STEP
+    # 1) PREPROCESS STEP (ScriptProcessor supports requirements.txt)
     ###########################################################################
-    preprocess = SKLearnProcessor(
-        framework_version="1.2-1",
+    preprocess = ScriptProcessor(
+        image_uri="683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3",
+        command=["python3"],
         instance_type="ml.m5.large",
         instance_count=1,
         role=role,
@@ -27,15 +27,15 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         name="Preprocess",
         processor=preprocess,
         code="preprocess.py",
-        source_dir="src",                     # ensures requirements.txt is included
-        dependencies=["requirements.txt"],    # installs polars, lightgbm, sklearn, etc.
+        source_dir="src",
+        dependencies=["requirements.txt"],
         outputs=[
-            sagemaker.processing.ProcessingOutput(
+            ProcessingOutput(
                 output_name="train",
                 source="/opt/ml/processing/train",
                 destination=f"s3://{bucket}/home-credit/silver/train/"
             ),
-            sagemaker.processing.ProcessingOutput(
+            ProcessingOutput(
                 output_name="test",
                 source="/opt/ml/processing/test",
                 destination=f"s3://{bucket}/home-credit/silver/test/"
@@ -51,8 +51,9 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     ###########################################################################
     # 2) EVALUATE STEP (uses existing model aiml_model.pkl)
     ###########################################################################
-    evaluate = SKLearnProcessor(
-        framework_version="1.2-1",
+    evaluate = ScriptProcessor(
+        image_uri="683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3",
+        command=["python3"],
         instance_type="ml.m5.large",
         instance_count=1,
         role=role,
@@ -66,7 +67,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         source_dir="src",
         dependencies=["requirements.txt"],
         outputs=[
-            sagemaker.processing.ProcessingOutput(
+            ProcessingOutput(
                 output_name="evaluation",
                 source="/opt/ml/processing/evaluation",
                 destination=f"s3://{bucket}/home-credit/gold/evaluation/"
