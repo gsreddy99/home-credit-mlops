@@ -2,27 +2,15 @@
 
 import os
 import argparse
-import sagemaker
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.workflow.steps import ProcessingStep
-from sagemaker.workflow.retry import StepRetryPolicy
 import sagemaker.processing
 
 
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
-
-    ###########################################################################
-    # RETRY POLICY (handles quota errors)
-    ###########################################################################
-    retry_policy = StepRetryPolicy(
-        exception_types=["SAGEMAKER_RESOURCE_LIMIT"],
-        interval_seconds=60,   # wait 1 minute between retries
-        backoff_rate=2.0,      # exponential backoff
-        max_attempts=5         # retry up to 5 times
-    )
 
     ###########################################################################
     # 1) PREPROCESS STEP
@@ -38,7 +26,9 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     step_preprocess = ProcessingStep(
         name="Preprocess",
         processor=preprocess,
-        code="src/preprocess.py",
+        code="preprocess.py",
+        source_dir="src",                     # ensures requirements.txt is included
+        dependencies=["requirements.txt"],    # installs polars, lightgbm, sklearn, etc.
         outputs=[
             sagemaker.processing.ProcessingOutput(
                 output_name="train",
@@ -56,11 +46,10 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
             "--train-prefix", "bronze/train",
             "--test-prefix", "bronze/test",
         ],
-        retry_policies=[retry_policy],
     )
 
     ###########################################################################
-    # 2) EVALUATE STEP
+    # 2) EVALUATE STEP (uses existing model aiml_model.pkl)
     ###########################################################################
     evaluate = SKLearnProcessor(
         framework_version="1.2-1",
@@ -73,7 +62,9 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     step_evaluate = ProcessingStep(
         name="EvaluateModel",
         processor=evaluate,
-        code="src/evaluate.py",
+        code="evaluate.py",
+        source_dir="src",
+        dependencies=["requirements.txt"],
         outputs=[
             sagemaker.processing.ProcessingOutput(
                 output_name="evaluation",
@@ -84,16 +75,15 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         job_arguments=[
             "--output_dir", "/opt/ml/processing/evaluation"
         ],
-        retry_policies=[retry_policy],
     )
 
     ###########################################################################
-    # FORCE SEQUENTIAL EXECUTION (critical for quota=1)
+    # FORCE STRICT SEQUENTIAL EXECUTION
     ###########################################################################
     step_evaluate.add_depends_on([step_preprocess])
 
     ###########################################################################
-    # PIPELINE
+    # PIPELINE: Preprocess → Evaluate
     ###########################################################################
     return Pipeline(
         name="HomeCreditBatchPipeline",
