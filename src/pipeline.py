@@ -7,11 +7,22 @@ from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.workflow.steps import ProcessingStep
+from sagemaker.workflow.retry import StepRetryPolicy
 import sagemaker.processing
 
 
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
+
+    ###########################################################################
+    # RETRY POLICY (handles quota errors)
+    ###########################################################################
+    retry_policy = StepRetryPolicy(
+        exception_types=["SAGEMAKER_RESOURCE_LIMIT"],
+        interval_seconds=60,   # wait 1 minute between retries
+        backoff_rate=2.0,      # exponential backoff
+        max_attempts=5         # retry up to 5 times
+    )
 
     ###########################################################################
     # 1) PREPROCESS STEP
@@ -45,37 +56,11 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
             "--train-prefix", "bronze/train",
             "--test-prefix", "bronze/test",
         ],
+        retry_policies=[retry_policy],
     )
 
     ###########################################################################
-    # 2) TRAIN STEP (DISABLED)
-    ###########################################################################
-    # train = SKLearnProcessor(
-    #     framework_version="1.2-1",
-    #     instance_type="ml.m5.xlarge",
-    #     instance_count=1,
-    #     role=role,
-    #     sagemaker_session=session,
-    # )
-    #
-    # step_train = ProcessingStep(
-    #     name="TrainModel",
-    #     processor=train,
-    #     code="src/train.py",
-    #     outputs=[
-    #         sagemaker.processing.ProcessingOutput(
-    #             output_name="model",
-    #             source="/opt/ml/model",
-    #             destination=f"s3://{bucket}/home-credit/model/"
-    #         )
-    #     ],
-    #     job_arguments=[
-    #         "--model_output", "/opt/ml/model"
-    #     ],
-    # )
-
-    ###########################################################################
-    # 3) EVALUATE STEP (USES EXISTING MODEL)
+    # 2) EVALUATE STEP
     ###########################################################################
     evaluate = SKLearnProcessor(
         framework_version="1.2-1",
@@ -99,10 +84,16 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         job_arguments=[
             "--output_dir", "/opt/ml/processing/evaluation"
         ],
+        retry_policies=[retry_policy],
     )
 
     ###########################################################################
-    # PIPELINE: Preprocess → Evaluate (Train removed)
+    # FORCE SEQUENTIAL EXECUTION (critical for quota=1)
+    ###########################################################################
+    step_evaluate.add_depends_on([step_preprocess])
+
+    ###########################################################################
+    # PIPELINE
     ###########################################################################
     return Pipeline(
         name="HomeCreditBatchPipeline",
