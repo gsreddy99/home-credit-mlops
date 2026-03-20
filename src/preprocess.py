@@ -126,8 +126,8 @@ def to_pandas(df: pl.DataFrame):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bucket", type=str, required=True)
-    parser.add_argument("--train-prefix", type=str, default="bronze/train")
-    parser.add_argument("--test-prefix",  type=str, default="bronze/test")  # ← changed from bronze1
+    parser.add_argument("--train-prefix", type=str, default="home-credit/bronze/train")
+    parser.add_argument("--test-prefix",  type=str, default="home-credit/bronze/test")  # ← changed from bronze1
     args = parser.parse_args()
 
     bucket = args.bucket
