@@ -39,7 +39,7 @@ def evaluate_and_update(output_dir: str):
     s3 = boto3.client("s3")
 
     # Updated model + test + template paths
-    model_key   = "home-credit/model/model.pkl"
+    model_key   = "home-credit/model/aiml_model.pkl"
     test_key    = "home-credit/silver/test/test.csv"
     sample_key  = "home-credit/model/sample_submission.csv"   # corrected filename
 
