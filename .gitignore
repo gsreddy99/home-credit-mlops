@@ -3,3 +3,4 @@
 /infra/.terraform/
 /src/preprocess.txt
 /src/evaluate.txt
+/src/train.txt

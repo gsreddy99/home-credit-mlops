@@ -9,7 +9,21 @@ import tempfile
 
 BUCKET = "sg-home-credit"
 
+# ----------------------------------------------------------------------
+# Add the VotingModel class EXACTLY as defined in train.py
+# ----------------------------------------------------------------------
+class VotingModel:
+    def __init__(self, estimators):
+        self.estimators = estimators
 
+    def predict_proba(self, X):
+        probs = [est.predict_proba(X) for est in self.estimators]
+        return sum(probs) / len(probs)
+
+
+# ----------------------------------------------------------------------
+# Helper to download files from S3
+# ----------------------------------------------------------------------
 def download_file_from_s3(key):
     s3 = boto3.client("s3")
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
@@ -17,14 +31,17 @@ def download_file_from_s3(key):
         return tmp.name
 
 
+# ----------------------------------------------------------------------
+# Evaluation logic
+# ----------------------------------------------------------------------
 def evaluate_and_update(output_dir: str):
 
     s3 = boto3.client("s3")
 
-    # ── Inputs (updated model path) ─────────────────────────────────────────
-    model_key   = "home-credit/model/aiml_model.pkl"   # ← updated
+    # Updated model + test + template paths
+    model_key   = "home-credit/model/model.pkl"
     test_key    = "home-credit/silver/test/test.csv"
-    sample_key  = "home-credit/model/sample_submission.csv"
+    sample_key  = "home-credit/model/sample_submission.csv"   # corrected filename
 
     print(f"Loading model:     s3://{BUCKET}/{model_key}")
     print(f"Loading test:      s3://{BUCKET}/{test_key}")
@@ -34,11 +51,13 @@ def evaluate_and_update(output_dir: str):
     test_path   = download_file_from_s3(test_key)
     sample_path = download_file_from_s3(sample_key)
 
+    # Load model (now works because VotingModel is defined above)
     model = joblib.load(model_path)
+
     df_test = pd.read_csv(test_path)
     df_sample = pd.read_csv(sample_path)
 
-    # ── Predict ────────────────────────────────────────────────────────────
+    # Predict
     X_test = df_test.drop(columns=["case_id", "WEEK_NUM"], errors="ignore")
     X_test.index = df_test["case_id"]
 
@@ -50,7 +69,7 @@ def evaluate_and_update(output_dir: str):
     df_result = df_sample[["case_id"]].merge(df_pred, on="case_id", how="left")
     df_result["score"] = df_result["score"].fillna(0.005)
 
-    # ── Save & upload ──────────────────────────────────────────────────────
+    # Save & upload
     os.makedirs(output_dir, exist_ok=True)
     local_path = os.path.join(output_dir, "sample_submission.csv")
     df_result.to_csv(local_path, index=False)
