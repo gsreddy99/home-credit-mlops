@@ -206,9 +206,9 @@ def main():
         "depth_1": [
             read_file(f"s3://{bucket}/{args.test_prefix}/test_applprev_1_0.parquet", 1),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_b_1.parquet", 1),
-            read_file(f"s3://{bucket}/{args.test_prefix}/test_tax_registry_a.parquet", 1),
-            read_file(f"s3://{bucket}/{args.test_prefix}/test_tax_registry_b.parquet", 1),
-            read_file(f"s3://{bucket}/{args.test_prefix}/test_tax_registry_c.parquet", 1),
+            read_file(f"s3://{bucket}/{args.test_prefix}/test_tax_registry_a_1.parquet", 1),
+            read_file(f"s3://{bucket}/{args.test_prefix}/test_tax_registry_b_1.parquet", 1),
+            read_file(f"s3://{bucket}/{args.test_prefix}/test_tax_registry_c_1.parquet", 1),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_person_1.parquet", 1),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_debitcard_1.parquet", 1),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_deposit_1.parquet", 1),
