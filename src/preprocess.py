@@ -1,4 +1,7 @@
 # src/preprocess.py
+import subprocess
+subprocess.run(["pip", "install", "polars", "lightgbm"], check=True)
+
 import argparse
 import os
 import boto3

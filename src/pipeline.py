@@ -5,7 +5,7 @@ import argparse
 import sagemaker
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.sklearn.processing import SKLearnProcessor
+from sagemaker.processing import ScriptProcessor
 from sagemaker.workflow.steps import ProcessingStep
 import sagemaker.processing
 
@@ -13,11 +13,17 @@ import sagemaker.processing
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
 
+    image_uri = (
+        "683313688378.dkr.ecr.us-east-1.amazonaws.com/"
+        "sagemaker-scikit-learn:1.2-1-cpu-py3"
+    )
+
     ###########################################################################
     # 1) PREPROCESS STEP (runs first)
     ###########################################################################
-    preprocess = SKLearnProcessor(
-        framework_version="1.2-1",
+    preprocess = ScriptProcessor(
+        image_uri=image_uri,
+        command=["python3"],
         instance_type="ml.m5.large",
         instance_count=1,
         role=role,
@@ -50,8 +56,9 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     ###########################################################################
     # 2) EVALUATE STEP (runs strictly after preprocess)
     ###########################################################################
-    evaluate = SKLearnProcessor(
-        framework_version="1.2-1",
+    evaluate = ScriptProcessor(
+        image_uri=image_uri,
+        command=["python3"],
         instance_type="ml.m5.large",
         instance_count=1,
         role=role,
