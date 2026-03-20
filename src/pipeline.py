@@ -2,26 +2,22 @@
 
 import os
 import argparse
+import sagemaker
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.processing import ScriptProcessor, ProcessingOutput
+from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.workflow.steps import ProcessingStep
+import sagemaker.processing
 
 
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
 
-    image_uri = (
-        "683313688378.dkr.ecr.us-east-1.amazonaws.com/"
-        "sagemaker-scikit-learn:1.2-1-cpu-py3"
-    )
-
     ###########################################################################
-    # PREPROCESS STEP
+    # 1) PREPROCESS STEP (runs first)
     ###########################################################################
-    preprocess = ScriptProcessor(
-        image_uri=image_uri,
-        command=["bash"],
+    preprocess = SKLearnProcessor(
+        framework_version="1.2-1",
         instance_type="ml.m5.large",
         instance_count=1,
         role=role,
@@ -31,22 +27,20 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     step_preprocess = ProcessingStep(
         name="Preprocess",
         processor=preprocess,
-        code="bootstrap.sh",     # installs deps then runs preprocess.py
-        source_dir="src",
+        code="src/preprocess.py",
         outputs=[
-            ProcessingOutput(
+            sagemaker.processing.ProcessingOutput(
                 output_name="train",
                 source="/opt/ml/processing/train",
                 destination=f"s3://{bucket}/home-credit/silver/train/"
             ),
-            ProcessingOutput(
+            sagemaker.processing.ProcessingOutput(
                 output_name="test",
                 source="/opt/ml/processing/test",
                 destination=f"s3://{bucket}/home-credit/silver/test/"
             ),
         ],
         job_arguments=[
-            "preprocess.py",
             "--bucket", bucket,
             "--train-prefix", "bronze/train",
             "--test-prefix", "bronze/test",
@@ -54,11 +48,10 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     )
 
     ###########################################################################
-    # EVALUATE STEP
+    # 2) EVALUATE STEP (runs strictly after preprocess)
     ###########################################################################
-    evaluate = ScriptProcessor(
-        image_uri=image_uri,
-        command=["bash"],
+    evaluate = SKLearnProcessor(
+        framework_version="1.2-1",
         instance_type="ml.m5.large",
         instance_count=1,
         role=role,
@@ -68,26 +61,27 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     step_evaluate = ProcessingStep(
         name="EvaluateModel",
         processor=evaluate,
-        code="bootstrap.sh",
-        source_dir="src",
+        code="src/evaluate.py",
         outputs=[
-            ProcessingOutput(
+            sagemaker.processing.ProcessingOutput(
                 output_name="evaluation",
                 source="/opt/ml/processing/evaluation",
                 destination=f"s3://{bucket}/home-credit/gold/evaluation/"
             )
         ],
         job_arguments=[
-            "evaluate.py",
             "--output_dir", "/opt/ml/processing/evaluation"
         ],
     )
 
     ###########################################################################
-    # FORCE SEQUENTIAL EXECUTION
+    # FORCE STRICT SEQUENTIAL EXECUTION
     ###########################################################################
     step_evaluate.add_depends_on([step_preprocess])
 
+    ###########################################################################
+    # PIPELINE (no parallelism possible)
+    ###########################################################################
     return Pipeline(
         name="HomeCreditBatchPipeline",
         steps=[step_preprocess, step_evaluate],
