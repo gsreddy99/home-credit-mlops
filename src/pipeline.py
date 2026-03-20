@@ -48,8 +48,8 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         ],
         job_arguments=[
             "--bucket", bucket,
-            "--train-prefix", "bronze/train",
-            "--test-prefix", "bronze/test",
+            "--train-prefix", "home-credit/bronze/train",
+            "--test-prefix", "home-credit/bronze/test",
         ],
     )
 
