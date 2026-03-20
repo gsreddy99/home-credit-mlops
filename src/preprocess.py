@@ -141,8 +141,8 @@ def main():
     train_store = {
         "df_base": train_base,
         "depth_0": [
-            read_file(f"s3://{bucket}/{args.train_prefix}/train_static_cb.parquet"),
-            read_file(f"s3://{bucket}/{args.train_prefix}/train_static_0.parquet"),
+            read_file(f"s3://{bucket}/{args.train_prefix}/train_static_cb_0.parquet"),
+
         ],
         "depth_1": [
             read_file(f"s3://{bucket}/{args.train_prefix}/train_applprev_1_0.parquet", 1),
@@ -176,10 +176,10 @@ def main():
     test_store = {
         "df_base": test_base,
         "depth_0": [
-            read_file(f"s3://{bucket}/{args.test_prefix}/test_static_cb.parquet"),
-            read_file(f"s3://{bucket}/{args.test_prefix}/test_static_0.parquet"),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_static_0_0.parquet"),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_static_0_1.parquet"),
+            read_file(f"s3://{bucket}/{args.test_prefix}/test_static_0_2.parquet"),
+            read_file(f"s3://{bucket}/{args.test_prefix}/test_static_cb_0.parquet"),
         ],
         "depth_1": [
             read_file(f"s3://{bucket}/{args.test_prefix}/test_applprev_1_0.parquet", 1),
