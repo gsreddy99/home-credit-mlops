@@ -16,8 +16,9 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     # UPDATED IMAGE URI (modern container with NumPy 1.26+)
     image_uri = (
         "683313688378.dkr.ecr.us-east-1.amazonaws.com/"
-        "sagemaker-scikit-learn:1.4-1-cpu-py3"
+        "sagemaker-scikit-learn:1.0-1-cpu-py3"
     )
+
 
     ###########################################################################
     # 1) PREPROCESS STEP
