@@ -1,25 +1,69 @@
 # filename: src/evaluate.py
 
 import os
-import json
 import argparse
+import boto3
+import pandas as pd
+import joblib
+import tempfile
+
+BUCKET = "sg-home-credit"
 
 
-def main(bucket: str):
-    metrics = {
-        "auc": 0.0,
-        "message": "Evaluation placeholder. Add real metrics later."
-    }
+def download_file_from_s3(key):
+    s3 = boto3.client("s3")
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        s3.download_file(BUCKET, key, tmp.name)
+        return tmp.name
 
-    output_dir = "/opt/ml/processing/evaluation"
+
+def evaluate_and_update(output_dir: str):
+
+    s3 = boto3.client("s3")
+
+    # ── Inputs (updated model path) ─────────────────────────────────────────
+    model_key   = "home-credit/model/aiml_model.pkl"   # ← updated
+    test_key    = "home-credit/silver/test/test.csv"
+    sample_key  = "home-credit/model/sample_suggestions.csv"
+
+    print(f"Loading model:     s3://{BUCKET}/{model_key}")
+    print(f"Loading test:      s3://{BUCKET}/{test_key}")
+    print(f"Loading template:  s3://{BUCKET}/{sample_key}")
+
+    model_path  = download_file_from_s3(model_key)
+    test_path   = download_file_from_s3(test_key)
+    sample_path = download_file_from_s3(sample_key)
+
+    model = joblib.load(model_path)
+    df_test = pd.read_csv(test_path)
+    df_sample = pd.read_csv(sample_path)
+
+    # ── Predict ────────────────────────────────────────────────────────────
+    X_test = df_test.drop(columns=["case_id", "WEEK_NUM"], errors="ignore")
+    X_test.index = df_test["case_id"]
+
+    print("Generating predictions...")
+    y_pred = model.predict_proba(X_test)[:, 1]
+
+    df_pred = pd.DataFrame({"case_id": X_test.index, "score": y_pred})
+
+    df_result = df_sample[["case_id"]].merge(df_pred, on="case_id", how="left")
+    df_result["score"] = df_result["score"].fillna(0.005)
+
+    # ── Save & upload ──────────────────────────────────────────────────────
     os.makedirs(output_dir, exist_ok=True)
+    local_path = os.path.join(output_dir, "sample_suggestions.csv")
+    df_result.to_csv(local_path, index=False)
 
-    with open(os.path.join(output_dir, "evaluation.json"), "w") as f:
-        json.dump(metrics, f)
+    gold_key = "home-credit/gold/sample_suggestions.csv"
+    s3.upload_file(local_path, BUCKET, gold_key)
+
+    print(f"✓ Updated predictions uploaded to: s3://{BUCKET}/{gold_key}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--bucket", required=True)
+    parser.add_argument("--output_dir", type=str, default="/opt/ml/processing/evaluation")
     args = parser.parse_args()
-    main(args.bucket)
+
+    evaluate_and_update(args.output_dir)

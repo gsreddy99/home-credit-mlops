@@ -13,7 +13,9 @@ import sagemaker.processing
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
 
-    # 1) Preprocess step (produces df_test.csv into silver bucket)
+    ###########################################################################
+    # 1) PREPROCESS STEP
+    ###########################################################################
     preprocess = SKLearnProcessor(
         framework_version="1.2-1",
         instance_type="ml.m5.large",
@@ -40,10 +42,41 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         ],
         job_arguments=[
             "--bucket", bucket,
+            "--train-prefix", "bronze/train",
+            "--test-prefix", "bronze/test",
         ],
     )
 
-    # 2) Evaluate step (writes evaluation.json into gold/evaluation)
+    ###########################################################################
+    # 2) TRAIN STEP (DISABLED)
+    ###########################################################################
+    # train = SKLearnProcessor(
+    #     framework_version="1.2-1",
+    #     instance_type="ml.m5.xlarge",
+    #     instance_count=1,
+    #     role=role,
+    #     sagemaker_session=session,
+    # )
+    #
+    # step_train = ProcessingStep(
+    #     name="TrainModel",
+    #     processor=train,
+    #     code="src/train.py",
+    #     outputs=[
+    #         sagemaker.processing.ProcessingOutput(
+    #             output_name="model",
+    #             source="/opt/ml/model",
+    #             destination=f"s3://{bucket}/home-credit/model/"
+    #         )
+    #     ],
+    #     job_arguments=[
+    #         "--model_output", "/opt/ml/model"
+    #     ],
+    # )
+
+    ###########################################################################
+    # 3) EVALUATE STEP (USES EXISTING MODEL)
+    ###########################################################################
     evaluate = SKLearnProcessor(
         framework_version="1.2-1",
         instance_type="ml.m5.large",
@@ -64,38 +97,16 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
             )
         ],
         job_arguments=[
-            "--bucket", bucket,
+            "--output_dir", "/opt/ml/processing/evaluation"
         ],
     )
 
-    # 3) Generate predictions step (writes df_subm.csv into gold/predictions)
-    predictor = SKLearnProcessor(
-        framework_version="1.2-1",
-        instance_type="ml.m5.large",
-        instance_count=1,
-        role=role,
-        sagemaker_session=session,
-    )
-
-    step_predict = ProcessingStep(
-        name="GeneratePredictions",
-        processor=predictor,
-        code="src/generate_predictions.py",
-        outputs=[
-            sagemaker.processing.ProcessingOutput(
-                output_name="predictions",
-                source="/opt/ml/processing/output",
-                destination=f"s3://{bucket}/home-credit/gold/predictions/"
-            )
-        ],
-        job_arguments=[
-            "--bucket", bucket,
-        ],
-    )
-
+    ###########################################################################
+    # PIPELINE: Preprocess → Evaluate (Train removed)
+    ###########################################################################
     return Pipeline(
         name="HomeCreditBatchPipeline",
-        steps=[step_preprocess, step_evaluate, step_predict],
+        steps=[step_preprocess, step_evaluate],
         sagemaker_session=session,
     )
 
