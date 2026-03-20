@@ -11,12 +11,17 @@ from sagemaker.workflow.steps import ProcessingStep
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
 
+    image_uri = (
+        "683313688378.dkr.ecr.us-east-1.amazonaws.com/"
+        "sagemaker-scikit-learn:1.2-1-cpu-py3"
+    )
+
     ###########################################################################
-    # 1) PREPROCESS STEP (ScriptProcessor supports requirements.txt)
+    # PREPROCESS STEP
     ###########################################################################
     preprocess = ScriptProcessor(
-        image_uri="683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3",
-        command=["python3"],
+        image_uri=image_uri,
+        command=["bash"],
         instance_type="ml.m5.large",
         instance_count=1,
         role=role,
@@ -26,9 +31,8 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     step_preprocess = ProcessingStep(
         name="Preprocess",
         processor=preprocess,
-        code="preprocess.py",
+        code="bootstrap.sh",     # installs deps then runs preprocess.py
         source_dir="src",
-        dependencies=["requirements.txt"],
         outputs=[
             ProcessingOutput(
                 output_name="train",
@@ -42,6 +46,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
             ),
         ],
         job_arguments=[
+            "preprocess.py",
             "--bucket", bucket,
             "--train-prefix", "bronze/train",
             "--test-prefix", "bronze/test",
@@ -49,11 +54,11 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     )
 
     ###########################################################################
-    # 2) EVALUATE STEP (uses existing model aiml_model.pkl)
+    # EVALUATE STEP
     ###########################################################################
     evaluate = ScriptProcessor(
-        image_uri="683313688378.dkr.ecr.us-east-1.amazonaws.com/sagemaker-scikit-learn:1.2-1-cpu-py3",
-        command=["python3"],
+        image_uri=image_uri,
+        command=["bash"],
         instance_type="ml.m5.large",
         instance_count=1,
         role=role,
@@ -63,9 +68,8 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     step_evaluate = ProcessingStep(
         name="EvaluateModel",
         processor=evaluate,
-        code="evaluate.py",
+        code="bootstrap.sh",
         source_dir="src",
-        dependencies=["requirements.txt"],
         outputs=[
             ProcessingOutput(
                 output_name="evaluation",
@@ -74,18 +78,16 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
             )
         ],
         job_arguments=[
+            "evaluate.py",
             "--output_dir", "/opt/ml/processing/evaluation"
         ],
     )
 
     ###########################################################################
-    # FORCE STRICT SEQUENTIAL EXECUTION
+    # FORCE SEQUENTIAL EXECUTION
     ###########################################################################
     step_evaluate.add_depends_on([step_preprocess])
 
-    ###########################################################################
-    # PIPELINE: Preprocess → Evaluate
-    ###########################################################################
     return Pipeline(
         name="HomeCreditBatchPipeline",
         steps=[step_preprocess, step_evaluate],
