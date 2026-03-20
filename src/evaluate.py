@@ -7,6 +7,9 @@ import pandas as pd
 import joblib
 import tempfile
 
+import subprocess
+subprocess.run(["pip", "install", "lightgbm"], check=True)
+
 BUCKET = "sg-home-credit"
 
 # ----------------------------------------------------------------------
