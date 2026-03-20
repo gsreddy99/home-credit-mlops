@@ -1,23 +1,12 @@
-# --- Stage 1: Install dependencies BEFORE Python imports NumPy ---
-import subprocess
-subprocess.run(["pip", "install", "--upgrade", "numpy"], check=True)
-subprocess.run(["pip", "install", "lightgbm"], check=True)
-
-# After installing, restart the interpreter so the new NumPy loads cleanly
-import os, sys
-
-if os.environ.get("EVAL_STAGE") != "2":
-    os.environ["EVAL_STAGE"] = "2"
-    os.execv(sys.executable, ["python"] + sys.argv)
-
-# --- Stage 2: Now safe to import everything ---
+import os
 import argparse
 import boto3
 import pandas as pd
 import joblib
 import tempfile
 
-# VotingModel class from training
+BUCKET = "sg-home-credit"
+
 class VotingModel:
     def __init__(self, estimators):
         self.estimators = estimators
@@ -25,8 +14,6 @@ class VotingModel:
     def predict_proba(self, X):
         probs = [est.predict_proba(X) for est in self.estimators]
         return sum(probs) / len(probs)
-
-BUCKET = "sg-home-credit"
 
 def download_file_from_s3(key):
     s3 = boto3.client("s3")
