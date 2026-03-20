@@ -21,7 +21,10 @@ resource "aws_iam_policy" "sagemaker_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+
+      ############################################################
       # S3 access for pipeline inputs/outputs
+      ############################################################
       {
         Effect = "Allow"
         Action = [
@@ -35,7 +38,9 @@ resource "aws_iam_policy" "sagemaker_policy" {
         ]
       },
 
+      ############################################################
       # CloudWatch logs for processing jobs
+      ############################################################
       {
         Effect = "Allow"
         Action = [
@@ -46,7 +51,9 @@ resource "aws_iam_policy" "sagemaker_policy" {
         Resource = "*"
       },
 
+      ############################################################
       # SageMaker processing + pipeline operations
+      ############################################################
       {
         Effect = "Allow"
         Action = [
@@ -57,6 +64,18 @@ resource "aws_iam_policy" "sagemaker_policy" {
           "sagemaker:StartPipelineExecution",
           "sagemaker:DescribePipelineExecution",
           "sagemaker:DescribePipeline"
+        ]
+        Resource = "*"
+      },
+
+      ############################################################
+      # REQUIRED FIX — Tagging permissions for pipeline jobs
+      ############################################################
+      {
+        Effect = "Allow"
+        Action = [
+          "sagemaker:AddTags",
+          "sagemaker:ListTags"
         ]
         Resource = "*"
       }
@@ -172,7 +191,7 @@ resource "aws_iam_policy" "codebuild_policy" {
       },
 
       ############################################################
-      # SageMaker Pipeline Permissions (THE MISSING BLOCK)
+      # SageMaker Pipeline Permissions
       ############################################################
       {
         Effect = "Allow"
@@ -186,7 +205,9 @@ resource "aws_iam_policy" "codebuild_policy" {
         Resource = "arn:aws:sagemaker:us-east-1:943938400093:pipeline/HomeCreditBatchPipeline"
       },
 
+      ############################################################
       # List operations must be wildcard
+      ############################################################
       {
         Effect = "Allow"
         Action = [
