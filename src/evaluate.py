@@ -1,6 +1,7 @@
 # filename: src/evaluate.py
 
 import subprocess
+subprocess.run(["pip", "install", "--upgrade", "numpy"], check=True)
 subprocess.run(["pip", "install", "lightgbm"], check=True)
 
 import os
