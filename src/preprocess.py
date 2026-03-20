@@ -107,10 +107,12 @@ def feature_engineering(df_base, depth_0, depth_1, depth_2):
         pl.col("date_decision").dt.weekday().alias("weekday_decision"),
     ])
 
-    for group in [depth_0, depth_1, depth_2]:
-        for df_depth in group:
+    # FIX: unique suffix per join to avoid DuplicateError
+    for group_idx, group in enumerate([depth_0, depth_1, depth_2]):
+        for table_idx, df_depth in enumerate(group):
             if df_depth is not None and df_depth.height > 0:
-                df = df.join(df_depth, on="case_id", how="left")
+                suffix = f"_d{group_idx}_{table_idx}"
+                df = df.join(df_depth, on="case_id", how="left", suffix=suffix)
 
     df = Pipeline.handle_dates(df)
     return df
@@ -127,7 +129,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--bucket", type=str, required=True)
     parser.add_argument("--train-prefix", type=str, default="home-credit/bronze/train")
-    parser.add_argument("--test-prefix",  type=str, default="home-credit/bronze/test")  # ← changed from bronze1
+    parser.add_argument("--test-prefix",  type=str, default="home-credit/bronze/test")
     args = parser.parse_args()
 
     bucket = args.bucket
@@ -142,7 +144,6 @@ def main():
         "df_base": train_base,
         "depth_0": [
             read_file(f"s3://{bucket}/{args.train_prefix}/train_static_cb_0.parquet"),
-
         ],
         "depth_1": [
             read_file(f"s3://{bucket}/{args.train_prefix}/train_applprev_1_0.parquet", 1),
@@ -191,7 +192,6 @@ def main():
             read_file(f"s3://{bucket}/{args.test_prefix}/test_debitcard_1.parquet", 1),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_deposit_1.parquet", 1),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_other_1.parquet", 1),
-            # Treating credit bureau a _1 files as depth 1 (common pattern)
             read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_1_*.parquet", 1),
         ],
         "depth_2": [
@@ -203,7 +203,7 @@ def main():
 
     print("Starting test feature engineering...")
     df_test = feature_engineering(**test_store)
-    # Align columns with train (drop target if accidentally present, keep order)
+
     common_cols = [c for c in df_train.columns if c != "target"]
     df_test = df_test.select([c for c in common_cols if c in df_test.columns])
     df_test_pd, _ = to_pandas(df_test)
