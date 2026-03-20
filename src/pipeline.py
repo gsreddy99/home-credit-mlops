@@ -24,7 +24,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     preprocess = ScriptProcessor(
         image_uri=image_uri,
         command=["python3"],
-        instance_type="ml.m5.large",
+        instance_type="ml.m5.xlarge",
         instance_count=1,
         role=role,
         sagemaker_session=session,
@@ -59,7 +59,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     evaluate = ScriptProcessor(
         image_uri=image_uri,
         command=["python3"],
-        instance_type="ml.m5.large",
+        instance_type="ml.m5.xlarge",
         instance_count=1,
         role=role,
         sagemaker_session=session,
