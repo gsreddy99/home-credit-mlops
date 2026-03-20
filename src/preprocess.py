@@ -6,11 +6,11 @@ import argparse
 import os
 import boto3
 import polars as pl
-from glob import glob
 import gc
 
+
 # -------------------------------------------------------------------------
-#  Helpers (minimal but functional versions matching Home Credit kernels)
+#  Helpers
 # -------------------------------------------------------------------------
 
 class Pipeline:
@@ -21,11 +21,11 @@ class Pipeline:
                 df = df.with_columns(pl.col(col).cast(pl.Int32))
             elif col == "date_decision":
                 df = df.with_columns(pl.col(col).cast(pl.Date))
-            elif col[-1] in ("P", "A"):
+            elif col.endswith(("P", "A")):
                 df = df.with_columns(pl.col(col).cast(pl.Float64))
-            elif col[-1] == "M":
+            elif col.endswith("M"):
                 df = df.with_columns(pl.col(col).cast(pl.Utf8))
-            elif col[-1] == "D":
+            elif col.endswith("D"):
                 df = df.with_columns(pl.col(col).cast(pl.Date))
         return df
 
@@ -82,6 +82,18 @@ class Aggregator:
         )
 
 
+# -------------------------------------------------------------------------
+#  S3-aware file loaders (fixes glob issue)
+# -------------------------------------------------------------------------
+
+def list_s3_parquet(bucket, prefix):
+    s3 = boto3.client("s3")
+    resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
+    if "Contents" not in resp:
+        return []
+    return [obj["Key"] for obj in resp["Contents"] if obj["Key"].endswith(".parquet")]
+
+
 def read_file(s3_path: str, depth=None) -> pl.DataFrame:
     df = pl.read_parquet(s3_path).pipe(Pipeline.set_table_dtypes)
     if depth in (1, 2):
@@ -89,17 +101,19 @@ def read_file(s3_path: str, depth=None) -> pl.DataFrame:
     return df
 
 
-def read_files(s3_pattern: str, depth=None) -> pl.DataFrame:
-    paths = glob(s3_pattern)
-    if not paths:
-        print(f"Warning: No files found for pattern {s3_pattern}")
+def read_files(bucket: str, prefix: str, depth=None) -> pl.DataFrame:
+    keys = list_s3_parquet(bucket, prefix)
+    if not keys:
+        print(f"Warning: No files found for prefix {prefix}")
         return pl.DataFrame()
-    dfs = [read_file(p, depth) for p in paths]
-    if not dfs:
-        return pl.DataFrame()
-    concatenated = pl.concat(dfs, how="vertical_relaxed")
-    return concatenated.unique("case_id")
 
+    dfs = [read_file(f"s3://{bucket}/{k}", depth) for k in keys]
+    return pl.concat(dfs, how="vertical_relaxed").unique("case_id")
+
+
+# -------------------------------------------------------------------------
+#  Feature Engineering
+# -------------------------------------------------------------------------
 
 def feature_engineering(df_base, depth_0, depth_1, depth_2):
     df = df_base.with_columns([
@@ -107,7 +121,7 @@ def feature_engineering(df_base, depth_0, depth_1, depth_2):
         pl.col("date_decision").dt.weekday().alias("weekday_decision"),
     ])
 
-    # FIX: unique suffix per join to avoid DuplicateError
+    # Unique suffix per join to avoid DuplicateError
     for group_idx, group in enumerate([depth_0, depth_1, depth_2]):
         for table_idx, df_depth in enumerate(group):
             if df_depth is not None and df_depth.height > 0:
@@ -119,11 +133,15 @@ def feature_engineering(df_base, depth_0, depth_1, depth_2):
 
 
 def to_pandas(df: pl.DataFrame):
-    pdf = df.to_pandas(use_pyarrow_extension_array=True)
+    pdf = df.to_pandas()  # works with Pandas 1.1.3
     cat_cols = pdf.select_dtypes(include=["object", "category"]).columns.tolist()
     pdf[cat_cols] = pdf[cat_cols].astype("category")
     return pdf, cat_cols
 
+
+# -------------------------------------------------------------------------
+#  Main
+# -------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -133,12 +151,13 @@ def main():
     args = parser.parse_args()
 
     bucket = args.bucket
-    s3 = boto3.client("s3")
 
-    # ────────────────────────────────────────────────
-    #   TRAIN
-    # ────────────────────────────────────────────────
+    # --------------------------
+    # TRAIN
+    # --------------------------
     train_base = read_file(f"s3://{bucket}/{args.train_prefix}/train_base.parquet")
+
+    depth2_prefix = f"{args.train_prefix}/train_credit_bureau_a_2_"
 
     train_store = {
         "df_base": train_base,
@@ -157,17 +176,7 @@ def main():
             read_file(f"s3://{bucket}/{args.train_prefix}/train_other_1.parquet", 1),
         ],
         "depth_2": [
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_0.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_1.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_2.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_3.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_4.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_5.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_6.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_7.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_8.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_9.parquet", 2),
-            read_files(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_a_2_10.parquet", 2),
+            read_files(bucket, depth2_prefix, 2),
             read_file(f"s3://{bucket}/{args.train_prefix}/train_credit_bureau_b_2.parquet", 2),
             read_file(f"s3://{bucket}/{args.train_prefix}/train_applprev_2.parquet", 2),
             read_file(f"s3://{bucket}/{args.train_prefix}/train_person_2.parquet", 2),
@@ -179,10 +188,12 @@ def main():
     df_train = Pipeline.filter_cols(df_train)
     df_train_pd, cat_cols = to_pandas(df_train)
 
-    # ────────────────────────────────────────────────
-    #   TEST
-    # ────────────────────────────────────────────────
+    # --------------------------
+    # TEST
+    # --------------------------
     test_base = read_file(f"s3://{bucket}/{args.test_prefix}/test_base.parquet")
+
+    test_depth2_prefix = f"{args.test_prefix}/test_credit_bureau_a_2_"
 
     test_store = {
         "df_base": test_base,
@@ -202,25 +213,10 @@ def main():
             read_file(f"s3://{bucket}/{args.test_prefix}/test_debitcard_1.parquet", 1),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_deposit_1.parquet", 1),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_other_1.parquet", 1),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_1_0.parquet", 1),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_1_1.parquet", 1),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_1_2.parquet", 1),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_1_3.parquet", 1),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_1_4.parquet", 1),
+            read_files(bucket, f"{args.test_prefix}/test_credit_bureau_a_1_", 1),
         ],
         "depth_2": [
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_0.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_1.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_2.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_3.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_4.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_5.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_6.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_7.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_8.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_9.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_10.parquet", 2),
-            read_files(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_a_2_11.parquet", 2),
+            read_files(bucket, test_depth2_prefix, 2),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_credit_bureau_b_2.parquet", 2),
             read_file(f"s3://{bucket}/{args.test_prefix}/test_person_2.parquet", 2),
         ]
@@ -233,9 +229,11 @@ def main():
     df_test = df_test.select([c for c in common_cols if c in df_test.columns])
     df_test_pd, _ = to_pandas(df_test)
 
-    # ─── Save & Upload ───────────────────────────────────────
+    # --------------------------
+    # Save & Upload
+    # --------------------------
     os.makedirs("/opt/ml/processing/train", exist_ok=True)
-    os.makedirs("/opt/ml/processing/test",  exist_ok=True)
+    os.makedirs("/opt/ml/processing/test", exist_ok=True)
 
     train_out = "/opt/ml/processing/train/train.csv"
     test_out  = "/opt/ml/processing/test/test.csv"
@@ -243,12 +241,13 @@ def main():
     df_train_pd.to_csv(train_out, index=False)
     df_test_pd.to_csv(test_out, index=False)
 
+    s3 = boto3.client("s3")
     s3.upload_file(train_out, bucket, "home-credit/silver/train/train.csv")
     s3.upload_file(test_out,  bucket, "home-credit/silver/test/test.csv")
 
     print("Preprocessing completed.")
-    print(f"Train shape: {df_train_pd.shape}  →  s3://{bucket}/home-credit/silver/train/train.csv")
-    print(f"Test shape:  {df_test_pd.shape}   →  s3://{bucket}/home-credit/silver/test/test.csv")
+    print(f"Train shape: {df_train_pd.shape}")
+    print(f"Test shape:  {df_test_pd.shape}")
 
 
 if __name__ == "__main__":
