@@ -24,7 +24,7 @@ def evaluate_and_update(output_dir: str):
     # ── Inputs (updated model path) ─────────────────────────────────────────
     model_key   = "home-credit/model/aiml_model.pkl"   # ← updated
     test_key    = "home-credit/silver/test/test.csv"
-    sample_key  = "home-credit/model/sample_suggestion.csv"
+    sample_key  = "home-credit/model/ample_submission.csv"
 
     print(f"Loading model:     s3://{BUCKET}/{model_key}")
     print(f"Loading test:      s3://{BUCKET}/{test_key}")
@@ -52,10 +52,10 @@ def evaluate_and_update(output_dir: str):
 
     # ── Save & upload ──────────────────────────────────────────────────────
     os.makedirs(output_dir, exist_ok=True)
-    local_path = os.path.join(output_dir, "sample_suggestion.csv")
+    local_path = os.path.join(output_dir, "ample_submission.csv")
     df_result.to_csv(local_path, index=False)
 
-    gold_key = "home-credit/gold/sample_suggestion.csv"
+    gold_key = "home-credit/gold/ample_submission.csv"
     s3.upload_file(local_path, BUCKET, gold_key)
 
     print(f"✓ Updated predictions uploaded to: s3://{BUCKET}/{gold_key}")
