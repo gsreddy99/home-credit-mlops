@@ -1,15 +1,11 @@
-# filename: src/pipeline.py
-
 import os
 import argparse
 import sagemaker
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.processing import ScriptProcessor
+from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
 from sagemaker.workflow.steps import ProcessingStep
-import sagemaker.processing
 from sagemaker import image_uris
-
 
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
@@ -21,47 +17,26 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         instance_type="ml.m5.2xlarge",
     )
 
-    print(f"Using processing image: {image_uri}")
-
-    ###########################################################################
-    # 1) PREPROCESS STEP
-    ###########################################################################
+    # 1) PREPROCESS STEP (Simplified for brevity)
     preprocess = ScriptProcessor(
-        image_uri=image_uri,
-        command=["python3"],
-        instance_type="ml.m5.2xlarge",
-        instance_count=1,
-        role=role,
-        sagemaker_session=session,
+        image_uri=image_uri, command=["python3"], instance_type="ml.m5.2xlarge",
+        instance_count=1, role=role, sagemaker_session=session,
     )
 
     step_preprocess = ProcessingStep(
         name="Preprocess",
         processor=preprocess,
         code="src/preprocess.py",
-        # dependencies=["src/requirements.txt"],  # REMOVED - unsupported in your SDK version
         outputs=[
-            sagemaker.processing.ProcessingOutput(
-                output_name="train",
-                source="/opt/ml/processing/train",
-                destination=f"s3://{bucket}/home-credit/silver/train/"
-            ),
-            sagemaker.processing.ProcessingOutput(
-                output_name="test",
-                source="/opt/ml/processing/test",
-                destination=f"s3://{bucket}/home-credit/silver/test/"
-            ),
+            ProcessingOutput(output_name="train", source="/opt/ml/processing/train",
+                             destination=f"s3://{bucket}/home-credit/silver/train/"),
+            ProcessingOutput(output_name="test", source="/opt/ml/processing/test",
+                             destination=f"s3://{bucket}/home-credit/silver/test/"),
         ],
-        job_arguments=[
-            "--bucket", bucket,
-            "--train-prefix", "home-credit/bronze/train",
-            "--test-prefix", "home-credit/bronze/test",
-        ],
+        job_arguments=["--bucket", bucket, "--train-prefix", "home-credit/bronze/train", "--test-prefix", "home-credit/bronze/test"],
     )
 
-    ###########################################################################
     # 2) EVALUATE STEP
-    ###########################################################################
     evaluate = ScriptProcessor(
         image_uri=image_uri,
         command=["python3"],
@@ -75,17 +50,15 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         name="EvaluateModel",
         processor=evaluate,
         code="src/evaluate.py",
-        # dependencies=["src/requirements.txt"],  # REMOVED
+        inputs=[
+            # Map requirements.txt from your local src/ folder to the container
+            ProcessingInput(source="src/requirements.txt", destination="/opt/ml/processing/input/reqs")
+        ],
         outputs=[
-            sagemaker.processing.ProcessingOutput(
-                output_name="evaluation",
-                source="/opt/ml/processing/evaluation",
-                destination=f"s3://{bucket}/home-credit/gold/evaluation/"
-            )
+            ProcessingOutput(output_name="evaluation", source="/opt/ml/processing/evaluation",
+                             destination=f"s3://{bucket}/home-credit/gold/evaluation/")
         ],
-        job_arguments=[
-            "--output_dir", "/opt/ml/processing/evaluation"
-        ],
+        job_arguments=["--output_dir", "/opt/ml/processing/evaluation"],
     )
 
     step_evaluate.add_depends_on([step_preprocess])
@@ -96,32 +69,19 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         sagemaker_session=session,
     )
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--update", action="store_true")
     parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
 
-    region = os.environ.get("AWS_REGION")
-    role   = os.environ.get("SAGEMAKER_ROLE_ARN")
-    bucket = os.environ.get("BUCKET")
-
-    if not all([region, role, bucket]):
-        raise ValueError("Missing env vars: AWS_REGION, SAGEMAKER_ROLE_ARN, BUCKET")
+    region, role, bucket = os.environ.get("AWS_REGION"), os.environ.get("SAGEMAKER_ROLE_ARN"), os.environ.get("BUCKET")
+    if not all([region, role, bucket]): raise ValueError("Missing env vars")
 
     pipeline = get_pipeline(region, role, bucket)
 
-    if args.update:
-        print("Upserting pipeline...")
-        pipeline.upsert(role_arn=role)
-        print("Pipeline upserted.")
-
-    if args.run:
-        print("Starting execution...")
-        execution = pipeline.start()
-        print("Execution ARN:", execution.arn)
-
+    if args.update: pipeline.upsert(role_arn=role)
+    if args.run: pipeline.start()
 
 if __name__ == "__main__":
     main()
