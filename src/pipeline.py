@@ -17,12 +17,13 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     # UPDATED IMAGE URI (modern container with NumPy 1.26+)
     # Option 1: Preferred for XGBoost (small, has lightgbm in many versions, good for your use case)
     # Replace the existing image_uri block with:
-    image_uri = sagemaker.image_uris.retrieve(
-        framework="lightgbm",          # ← this is the key change
+    image_uri = image_uris.retrieve(
+        framework=None,
         region=region,
-        version="3.3-1",               # Recent stable version; check docs or try "latest" / "3.4-1" if available
+        model_id="lightgbm-classification-model",
+        model_version="*",               # latest
         instance_type="ml.m5.2xlarge",
-        image_scope="training"         # or omit — "training" works for processing too
+        image_scope="training",
     )
 
 
