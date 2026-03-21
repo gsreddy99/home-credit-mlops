@@ -6,6 +6,8 @@ import boto3
 import pandas as pd
 import joblib
 import tempfile
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin
 
 # 1. BOOTSTRAP: Install dependencies from the pipeline-injected requirements file
 def install_requirements():
@@ -13,40 +15,50 @@ def install_requirements():
     if os.path.exists(req_path):
         print(f"Installing dependencies from {req_path}...")
         try:
+            # Upgrade pip for better resolution and install pinned requirements
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", req_path])
             import importlib
             importlib.invalidate_caches()
         except Exception as e:
             print(f"Failed to install requirements: {e}")
             sys.exit(1)
-    else:
-        print("requirements.txt not found at mapped path. Using container defaults.")
 
 install_requirements()
 
-# 2. MONKEY PATCH: Fix NumPy 2.0 compatibility for older scipy/sklearn
-import numpy as np
+# 2. MONKEY PATCH: Fix NumPy 2.0 compatibility for legacy sub-dependencies
 def patch_numpy():
     if not hasattr(np, "bool"):
-        # Map the missing 'bool' attribute to the standard Python bool
         np.bool = bool
-        print("Applied NumPy 2.0 monkey patch for np.bool")
+    if not hasattr(np, "float"):
+        np.float = float
+    if not hasattr(np, "int"):
+        np.int = int
+    print("Applied NumPy 2.0 compatibility patches (bool, float, int)")
 
 patch_numpy()
 
 BUCKET = "sg-home-credit"
 
-class VotingModel:
-    """Class definition must exist in the unpickling scope."""
+# 3. UPDATED VOTING MODEL (Matches Training)
+class VotingModel(BaseEstimator, ClassifierMixin):
     def __init__(self, estimators):
+        super().__init__()
         self.estimators = estimators
 
+    def fit(self, X, y=None):
+        return self
+
+    def predict(self, X):
+        y_preds = [estimator.predict(X) for estimator in self.estimators]
+        return np.mean(y_preds, axis=0)
+
     def predict_proba(self, X):
-        probs = [est.predict_proba(X) for est in self.estimators]
-        return np.mean(probs, axis=0)
+        y_preds = [estimator.predict_proba(X) for estimator in self.estimators]
+        return np.mean(y_preds, axis=0)
 
 def evaluate_and_update(output_dir: str):
-    # Register the class in the main module so joblib can find it
+    # Register the class in the main module for the unpickler
     import __main__
     __main__.VotingModel = VotingModel
 
@@ -73,9 +85,11 @@ def evaluate_and_update(output_dir: str):
     model = joblib.load(model_path)
     df_test = pd.read_csv(test_path)
 
+    # Drop non-feature columns
     X_test = df_test.drop(columns=["case_id", "WEEK_NUM", "target"], errors="ignore")
 
-    print(f"Generating predictions for {len(X_test)} records...")
+    print(f"Inference for {len(X_test)} records...")
+    # Use index 1 for positive class probability
     y_pred = model.predict_proba(X_test)[:, 1]
 
     df_result = pd.DataFrame({"case_id": df_test["case_id"], "score": y_pred})
@@ -90,7 +104,7 @@ def evaluate_and_update(output_dir: str):
     df_result.to_csv(local_path, index=False)
 
     s3.upload_file(local_path, BUCKET, "home-credit/gold/sample_suggestions.csv")
-    print(f"Success! Results uploaded to s3://{BUCKET}/home-credit/gold/sample_suggestions.csv")
+    print("Process complete.")
 
 if __name__ == "__main__":
     import argparse
