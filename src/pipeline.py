@@ -14,13 +14,13 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
 
     # UPDATED IMAGE URI (modern container with NumPy 1.26+)
-    image_uri = sagemaker.image_uris.retrieve(
-        framework="pytorch",
+    # Option 1: Preferred for XGBoost (small, has lightgbm in many versions, good for your use case)
+    image_uri = image_uris.retrieve(
+        framework="xgboost",
         region=region,
-        version="2.3",               # or "2.2", "2.1", "2.0" — newer = better
-        py_version="py310",          # or py311 / py39
-        instance_type="ml.m5.2xlarge",
-        image_scope="processing"     # important: use processing scope
+        version="1.7-1",          # Use a recent version: check https://docs.aws.amazon.com/sagemaker/latest/dg/xgboost.html or try "latest"
+        instance_type="ml.m5.2xlarge",  # optional, but can help select CPU/GPU variant
+        # image_scope="training",        # ← either omit this line entirely, or use "training"
     )
 
 
