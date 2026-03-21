@@ -14,11 +14,10 @@ from sagemaker import image_uris
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
 
-    # Use XGBoost container (small, fast, reliable URI retrieval)
     image_uri = image_uris.retrieve(
         framework="xgboost",
         region=region,
-        version="1.7-1",                   # stable version; "1.5-1" or "latest" also fine
+        version="1.7-1",
         instance_type="ml.m5.2xlarge",
     )
 
@@ -40,7 +39,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         name="Preprocess",
         processor=preprocess,
         code="src/preprocess.py",
-        dependencies=["src/requirements.txt"],  # ← installs lightgbm
+        # dependencies=["src/requirements.txt"],  # REMOVED - unsupported in your SDK version
         outputs=[
             sagemaker.processing.ProcessingOutput(
                 output_name="train",
@@ -76,7 +75,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         name="EvaluateModel",
         processor=evaluate,
         code="src/evaluate.py",
-        dependencies=["src/requirements.txt"],  # ← installs lightgbm
+        # dependencies=["src/requirements.txt"],  # REMOVED
         outputs=[
             sagemaker.processing.ProcessingOutput(
                 output_name="evaluation",
@@ -100,8 +99,8 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--update", action="store_true", help="Upsert the pipeline definition")
-    parser.add_argument("--run", action="store_true", help="Start a pipeline execution")
+    parser.add_argument("--update", action="store_true")
+    parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
 
     region = os.environ.get("AWS_REGION")
@@ -109,20 +108,19 @@ def main():
     bucket = os.environ.get("BUCKET")
 
     if not all([region, role, bucket]):
-        missing = [k for k, v in {"AWS_REGION": region, "SAGEMAKER_ROLE_ARN": role, "BUCKET": bucket}.items() if not v]
-        raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+        raise ValueError("Missing env vars: AWS_REGION, SAGEMAKER_ROLE_ARN, BUCKET")
 
     pipeline = get_pipeline(region, role, bucket)
 
     if args.update:
-        print("Upserting SageMaker pipeline...")
+        print("Upserting pipeline...")
         pipeline.upsert(role_arn=role)
-        print("Pipeline definition upserted successfully.")
+        print("Pipeline upserted.")
 
     if args.run:
-        print("Starting pipeline execution...")
+        print("Starting execution...")
         execution = pipeline.start()
-        print(f"Pipeline execution started. Execution ARN: {execution.arn}")
+        print("Execution ARN:", execution.arn)
 
 
 if __name__ == "__main__":
