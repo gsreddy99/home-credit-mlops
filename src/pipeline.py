@@ -1,15 +1,18 @@
 # filename: src/pipeline.py
+import os
+import argparse
 import sagemaker
-from sagemaker.workflow.pipeline import Pipeline # Add this explicit import
+from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
 from sagemaker.workflow.steps import ProcessingStep
 from sagemaker import image_uris
 
 def get_pipeline(region, role, bucket):
-    # This session is tied to your specific bucket/region
+    # Use PipelineSession to ensure the pipeline is managed by SageMaker
     session = PipelineSession(default_bucket=bucket)
 
+    # Scikit-learn image allows for the NumPy 2.0 upgrade in evaluate.py
     eval_image = image_uris.retrieve(
         framework="sklearn",
         region=region,
@@ -23,7 +26,7 @@ def get_pipeline(region, role, bucket):
         instance_type="ml.m5.2xlarge",
         instance_count=1,
         role=role,
-        sagemaker_session=session # Session used here
+        sagemaker_session=session
     )
 
     step_evaluate = ProcessingStep(
@@ -38,11 +41,32 @@ def get_pipeline(region, role, bucket):
         ]
     )
 
-    # CRITICAL FIX: You must pass the 'session' to the Pipeline object.
-    # If omitted, SageMaker tries to 'Create' a new session context
-    # which often triggers the AccessDenied error in CodeBuild.
+    # Explicitly pass the session to the Pipeline object
     return Pipeline(
         name="HomeCreditPipeline",
         steps=[step_evaluate],
         sagemaker_session=session
     )
+
+# --- MISSING BLOCK ADDED BELOW ---
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--update", action="store_true")
+    parser.add_argument("--run", action="store_true")
+    args = parser.parse_args()
+
+    # Environment variables set by CodeBuild
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    role = os.environ.get("SAGEMAKER_ROLE_ARN")
+    bucket = os.environ.get("BUCKET")
+
+    pipeline = get_pipeline(region, role, bucket)
+
+    if args.update:
+        print(f"Upserting pipeline: {pipeline.name}")
+        pipeline.upsert(role_arn=role) #
+
+    if args.run:
+        print(f"Starting execution for: {pipeline.name}")
+        execution = pipeline.start() #
+        print(f"Execution started! ARN: {execution.arn}")
