@@ -1,5 +1,8 @@
 # filename: src/pipeline.py
+import os
+import argparse
 import sagemaker
+from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
 from sagemaker.workflow.steps import ProcessingStep
@@ -8,7 +11,6 @@ from sagemaker import image_uris
 def get_pipeline(region, role, bucket):
     session = PipelineSession(default_bucket=bucket)
 
-    # This image allows the NumPy 2.0 upgrade without crashing
     eval_image = image_uris.retrieve(
         framework="sklearn",
         region=region,
@@ -36,4 +38,27 @@ def get_pipeline(region, role, bucket):
             ProcessingOutput(output_name="evaluation", source="/opt/ml/processing/evaluation")
         ]
     )
-    return sagemaker.workflow.pipeline.Pipeline(name="HomeCreditPipeline", steps=[step_evaluate])
+    # Ensure the name matches what you expect in the console
+    return Pipeline(name="HomeCreditPipeline", steps=[step_evaluate], sagemaker_session=session)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--update", action="store_true", help="Update pipeline definition")
+    parser.add_argument("--run", action="store_true", help="Trigger a new execution")
+    args = parser.parse_args()
+
+    # Get environment variables (Ensure these are set in your CodeBuild project)
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    role = os.environ.get("SAGEMAKER_ROLE_ARN")
+    bucket = os.environ.get("BUCKET", "sg-home-credit")
+
+    pipeline = get_pipeline(region, role, bucket)
+
+    if args.update:
+        print(f"Upserting pipeline: {pipeline.name}")
+        pipeline.upsert(role_arn=role)
+
+    if args.run:
+        print(f"Starting execution for: {pipeline.name}")
+        execution = pipeline.start()
+        print(f"Execution started! ARN: {execution.arn}")
