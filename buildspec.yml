@@ -1,3 +1,4 @@
+# filename: buildspec.yml
 version: 0.2
 
 phases:
@@ -6,14 +7,11 @@ phases:
       python: 3.11
     commands:
       - pip install --upgrade pip
-      - pip uninstall -y sagemaker || true   # clean any partial install
-      - pip install "sagemaker<3.0.0" boto3 pytz pandas polars joblib scikit-learn
-      # If you had other packages before (pandas, joblib, etc.), re-add them:
-      # - pip install pandas joblib pytz polars lightgbm scikit-learn
+      - pip uninstall -y sagemaker || true
+      # Include lightgbm here so the pipeline script doesn't fail on local imports
+      - pip install "sagemaker<3.0.0" boto3 pytz pandas polars joblib scikit-learn lightgbm
   build:
     commands:
-      - echo "SDK version:"
-      - pip show sagemaker | grep Version   # confirm 2.x
-      - pip show pytz | grep Version        # confirm pytz is there
+      - echo "Updating and Running Pipeline..."
       - python src/pipeline.py --update
       - python src/pipeline.py --run

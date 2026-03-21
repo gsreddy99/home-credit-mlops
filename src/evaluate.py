@@ -3,22 +3,23 @@ import os
 import sys
 import subprocess
 
-# --- STAGE 1: BOOTSTRAP ENVIRONMENT ---
-def bootstrap():
+# 1. BOOTSTRAP: Install modern dependencies (including Polars)
+def install_deps():
     req_path = "/opt/ml/processing/input/reqs/requirements.txt"
     if os.path.exists(req_path):
-        print("Finalizing environment: Installing Polars, LightGBM, and NumPy 2.0...")
+        print("Installing modern ML stack (NumPy 2.0, Polars, LightGBM)...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", req_path])
 
-        # Safety Bridge: Forces Python to recognize the new NumPy structure immediately
+        # REINFORCED BRIDGE: Maps both the base and the multiarray submodule
         import numpy
-        sys.modules["numpy._core"] = numpy
         import numpy.core.multiarray as multiarray
+        sys.modules["numpy._core"] = numpy
         sys.modules["numpy._core.multiarray"] = multiarray
+        print("✓ NumPy 2.0 namespaces bridged for model compatibility.")
 
-bootstrap()
+install_deps()
 
-# --- STAGE 2: ACTUAL LOGIC ---
+# 2. IMPORTS
 import boto3
 import pandas as pd
 import polars as pl
@@ -28,58 +29,59 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 
 BUCKET = "sg-home-credit"
 
-# Essential for joblib to reconstruct the pickled model
+# VotingModel class definition (must match training)
 class VotingModel(BaseEstimator, ClassifierMixin):
     def __init__(self, estimators):
         super().__init__()
         self.estimators = estimators
 
     def predict_proba(self, X):
-        # This handles the LightGBM estimators inside the VotingModel
         y_preds = [estimator.predict_proba(X) for estimator in self.estimators]
         return np.mean(y_preds, axis=0)
 
-def main():
-    # Register the class in the main namespace
+def evaluate_and_update():
+    # Ensure VotingModel is in the main namespace for joblib
     import __main__
     __main__.VotingModel = VotingModel
 
     s3 = boto3.client("s3")
     output_dir = "/opt/ml/processing/evaluation"
-    os.makedirs(output_dir, exist_ok=True)
+
+    # S3 Paths
+    model_key = "home-credit/model/aiml_model.pkl"
+    test_key = "home-credit/silver/test/test.csv"
 
     # Download assets
     test_path, model_path = "/tmp/test.csv", "/tmp/model.pkl"
     print("Downloading assets from S3...")
-    s3.download_file(BUCKET, "home-credit/silver/test/test.csv", test_path)
-    s3.download_file(BUCKET, "home-credit/model/aiml_model.pkl", model_path)
+    s3.download_file(BUCKET, test_key, test_path)
+    s3.download_file(BUCKET, model_key, model_path)
 
-    # Use POLARS for performance
-    print("Loading data with Polars...")
+    # Use POLARS for fast data loading
+    print("Loading test data with Polars...")
     df = pl.read_csv(test_path)
 
-    # Drop features not used in training (adjust column names if needed)
-    cols_to_drop = [c for c in ["case_id", "WEEK_NUM", "target"] if c in df.columns]
-    X_test = df.drop(cols_to_drop).to_pandas()
+    # Drop non-feature columns and convert to pandas for the model
+    X_test = df.drop(["case_id", "WEEK_NUM", "target"], strict=False).to_pandas()
 
-    print("Unpickling model (NumPy 2.0 bridge active)...")
+    print("Unpickling model...")
     model = joblib.load(model_path)
 
-    print("Generating scores...")
+    print("Generating predictions...")
     y_pred = model.predict_proba(X_test)[:, 1]
 
-    # Assemble final output
-    output_df = pl.DataFrame({
+    # Create result with Polars
+    result = pl.DataFrame({
         "case_id": df["case_id"],
         "score": y_pred
     })
 
+    os.makedirs(output_dir, exist_ok=True)
     local_csv = os.path.join(output_dir, "sample_suggestions.csv")
-    output_df.write_csv(local_csv)
+    result.write_csv(local_csv)
 
-    print(f"Uploading results to gold layer...")
     s3.upload_file(local_csv, BUCKET, "home-credit/gold/sample_suggestions.csv")
-    print("Done!")
+    print("Inference successful and uploaded to Gold layer.")
 
 if __name__ == "__main__":
-    main()
+    evaluate_and_update()
