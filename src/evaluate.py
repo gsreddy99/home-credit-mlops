@@ -1,3 +1,4 @@
+# filename: src/evaluate.py
 import os
 import sys
 import subprocess
@@ -6,28 +7,37 @@ import pandas as pd
 import joblib
 import tempfile
 
-# 1. BOOTSTRAP DEPENDENCIES
+# 1. BOOTSTRAP: Install dependencies from the pipeline-injected requirements file
 def install_requirements():
-    """Installs requirements from the mapped pipeline input"""
     req_path = "/opt/ml/processing/input/reqs/requirements.txt"
     if os.path.exists(req_path):
         print(f"Installing dependencies from {req_path}...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", req_path])
-        # Refresh the path and caches
-        import importlib
-        importlib.invalidate_caches()
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", req_path])
+            import importlib
+            importlib.invalidate_caches()
+        except Exception as e:
+            print(f"Failed to install requirements: {e}")
+            sys.exit(1)
     else:
-        print("No requirements.txt found at expected path. Proceeding with system defaults.")
+        print("requirements.txt not found at mapped path. Using container defaults.")
 
 install_requirements()
 
-# Now safe to import upgraded libraries
+# 2. MONKEY PATCH: Fix NumPy 2.0 compatibility for older scipy/sklearn
 import numpy as np
+def patch_numpy():
+    if not hasattr(np, "bool"):
+        # Map the missing 'bool' attribute to the standard Python bool
+        np.bool = bool
+        print("Applied NumPy 2.0 monkey patch for np.bool")
+
+patch_numpy()
 
 BUCKET = "sg-home-credit"
 
 class VotingModel:
-    """Class definition must exist for joblib to unpickle successfully"""
+    """Class definition must exist in the unpickling scope."""
     def __init__(self, estimators):
         self.estimators = estimators
 
@@ -36,39 +46,36 @@ class VotingModel:
         return np.mean(probs, axis=0)
 
 def evaluate_and_update(output_dir: str):
-    # Register the class in the main module for the unpickler
+    # Register the class in the main module so joblib can find it
     import __main__
     __main__.VotingModel = VotingModel
 
     s3 = boto3.client("s3")
+    model_key = "home-credit/model/aiml_model.pkl"
+    test_key = "home-credit/silver/test/test.csv"
+    sample_key = "home-credit/model/sample_suggestions.csv"
 
-    model_key   = "home-credit/model/aiml_model.pkl"
-    test_key    = "home-credit/silver/test/test.csv"
-    sample_key  = "home-credit/model/sample_suggestions.csv"
-
-    # Download helper
-    def download_s3(key, req=True):
+    def download_s3(key, required=True):
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             try:
                 s3.download_file(BUCKET, key, tmp.name)
                 return tmp.name
             except Exception as e:
-                if not req: return None
+                if not required: return None
                 raise e
 
-    print("Downloading assets...")
+    print("Downloading assets from S3...")
     model_path = download_s3(model_key)
     test_path = download_s3(test_key)
-    sample_path = download_s3(sample_key, req=False)
+    sample_path = download_s3(sample_key, required=False)
 
-    print("Loading model...")
+    print("Loading model and performing inference...")
     model = joblib.load(model_path)
     df_test = pd.read_csv(test_path)
 
-    # Features (match training features)
     X_test = df_test.drop(columns=["case_id", "WEEK_NUM", "target"], errors="ignore")
 
-    print("Inference...")
+    print(f"Generating predictions for {len(X_test)} records...")
     y_pred = model.predict_proba(X_test)[:, 1]
 
     df_result = pd.DataFrame({"case_id": df_test["case_id"], "score": y_pred})
@@ -83,7 +90,7 @@ def evaluate_and_update(output_dir: str):
     df_result.to_csv(local_path, index=False)
 
     s3.upload_file(local_path, BUCKET, "home-credit/gold/sample_suggestions.csv")
-    print("Done.")
+    print(f"Success! Results uploaded to s3://{BUCKET}/home-credit/gold/sample_suggestions.csv")
 
 if __name__ == "__main__":
     import argparse
