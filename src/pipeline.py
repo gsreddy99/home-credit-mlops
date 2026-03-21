@@ -14,18 +14,15 @@ from sagemaker import image_uris
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
 
-    # UPDATED IMAGE URI (modern container with NumPy 1.26+)
-    # Option 1: Preferred for XGBoost (small, has lightgbm in many versions, good for your use case)
-    # Replace the existing image_uri block with:
+    # Use XGBoost container (small, fast, reliable URI retrieval)
     image_uri = image_uris.retrieve(
-        framework=None,
+        framework="xgboost",
         region=region,
-        model_id="lightgbm-classification-model",
-        model_version="*",               # latest
+        version="1.7-1",                   # stable version; "1.5-1" or "latest" also fine
         instance_type="ml.m5.2xlarge",
-        image_scope="training",
     )
 
+    print(f"Using processing image: {image_uri}")
 
     ###########################################################################
     # 1) PREPROCESS STEP
@@ -43,7 +40,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         name="Preprocess",
         processor=preprocess,
         code="src/preprocess.py",
-        dependencies=["src/requirements.txt"],
+        dependencies=["src/requirements.txt"],  # ← installs lightgbm
         outputs=[
             sagemaker.processing.ProcessingOutput(
                 output_name="train",
@@ -79,7 +76,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         name="EvaluateModel",
         processor=evaluate,
         code="src/evaluate.py",
-        dependencies=["src/requirements.txt"],
+        dependencies=["src/requirements.txt"],  # ← installs lightgbm
         outputs=[
             sagemaker.processing.ProcessingOutput(
                 output_name="evaluation",
@@ -103,22 +100,29 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--update", action="store_true")
-    parser.add_argument("--run", action="store_true")
+    parser.add_argument("--update", action="store_true", help="Upsert the pipeline definition")
+    parser.add_argument("--run", action="store_true", help="Start a pipeline execution")
     args = parser.parse_args()
 
-    region = os.environ["AWS_REGION"]
-    role = os.environ["SAGEMAKER_ROLE_ARN"]
-    bucket = os.environ["BUCKET"]
+    region = os.environ.get("AWS_REGION")
+    role   = os.environ.get("SAGEMAKER_ROLE_ARN")
+    bucket = os.environ.get("BUCKET")
+
+    if not all([region, role, bucket]):
+        missing = [k for k, v in {"AWS_REGION": region, "SAGEMAKER_ROLE_ARN": role, "BUCKET": bucket}.items() if not v]
+        raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
 
     pipeline = get_pipeline(region, role, bucket)
 
     if args.update:
+        print("Upserting SageMaker pipeline...")
         pipeline.upsert(role_arn=role)
+        print("Pipeline definition upserted successfully.")
 
     if args.run:
+        print("Starting pipeline execution...")
         execution = pipeline.start()
-        print("Execution ARN:", execution.arn)
+        print(f"Pipeline execution started. Execution ARN: {execution.arn}")
 
 
 if __name__ == "__main__":
