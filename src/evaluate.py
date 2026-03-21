@@ -2,29 +2,24 @@
 import os
 import sys
 import subprocess
-import boto3
-import pandas as pd
-import joblib
 import tempfile
-import numpy as np
-from sklearn.base import BaseEstimator, ClassifierMixin
 
-# 1. BOOTSTRAP: Install bridged dependencies
+# 1. BOOTSTRAP: Install bridged ML dependencies ONLY
 def install_requirements():
     req_path = "/opt/ml/processing/input/reqs/requirements.txt"
     if os.path.exists(req_path):
-        print(f"Installing bridged dependencies from {req_path}...")
+        print(f"Installing bridged ML dependencies from {req_path}...")
         try:
-            # We use --force-reinstall to ensure the container's 1.24 version
-            # is replaced by the 1.26.4 bridge version
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", req_path, "--force-reinstall"])
+            # We avoid reinstalling boto3/botocore to prevent 'Unknown service: s3'
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install",
+                "--no-cache-dir", "-r", req_path
+            ])
 
-            # CRITICAL: Fix for models saved with NumPy 2.0 while running on 1.26.x
-            # This maps the new _core location back to the old one
+            # Bridge for models saved with NumPy 2.0
             import numpy
-            if not hasattr(numpy, "_core"):
-                sys.modules["numpy._core"] = numpy
-                print("Mapped numpy._core to numpy for 1.x compatibility")
+            sys.modules["numpy._core"] = numpy
+            print("Mapped numpy._core to numpy for 1.x compatibility")
 
             import importlib
             importlib.invalidate_caches()
@@ -34,9 +29,16 @@ def install_requirements():
 
 install_requirements()
 
+# Now it is safe to import the rest
+import boto3
+import pandas as pd
+import joblib
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin
+
 BUCKET = "sg-home-credit"
 
-# 2. VOTING MODEL (Matches Training)
+# 2. VOTING MODEL
 class VotingModel(BaseEstimator, ClassifierMixin):
     def __init__(self, estimators):
         super().__init__()
@@ -57,6 +59,7 @@ def evaluate_and_update(output_dir: str):
     import __main__
     __main__.VotingModel = VotingModel
 
+    # This will now work because we didn't touch botocore
     s3 = boto3.client("s3")
     model_key = "home-credit/model/aiml_model.pkl"
     test_key = "home-credit/silver/test/test.csv"
@@ -77,13 +80,12 @@ def evaluate_and_update(output_dir: str):
     sample_path = download_s3(sample_key, required=False)
 
     print("Loading model and performing inference...")
-    # 1.26.4 + the _core mapping resolves the TypeError
     model = joblib.load(model_path)
     df_test = pd.read_csv(test_path)
 
     X_test = df_test.drop(columns=["case_id", "WEEK_NUM", "target"], errors="ignore")
 
-    print(f"Running inference on {len(X_test)} records...")
+    print(f"Processing {len(X_test)} records...")
     y_pred = model.predict_proba(X_test)[:, 1]
 
     df_result = pd.DataFrame({"case_id": df_test["case_id"], "score": y_pred})
@@ -98,7 +100,7 @@ def evaluate_and_update(output_dir: str):
     df_result.to_csv(local_path, index=False)
 
     s3.upload_file(local_path, BUCKET, "home-credit/gold/sample_suggestions.csv")
-    print("Inference successful. Output uploaded.")
+    print("Success: results uploaded.")
 
 if __name__ == "__main__":
     import argparse
