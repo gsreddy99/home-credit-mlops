@@ -14,9 +14,13 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
     session = PipelineSession(default_bucket=bucket)
 
     # UPDATED IMAGE URI (modern container with NumPy 1.26+)
-    image_uri = (
-        "683313688378.dkr.ecr.us-east-1.amazonaws.com/"
-        "sagemaker-scikit-learn:1.0-1-cpu-py3"
+    image_uri = sagemaker.image_uris.retrieve(
+        framework="pytorch",
+        region=region,
+        version="2.3",               # or "2.2", "2.1", "2.0" — newer = better
+        py_version="py310",          # or py311 / py39
+        instance_type="ml.m5.2xlarge",
+        image_scope="processing"     # important: use processing scope
     )
 
 
