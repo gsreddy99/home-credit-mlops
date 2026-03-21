@@ -3,6 +3,7 @@ import os
 import sys
 import subprocess
 
+# STAGE 1: Install dependencies BEFORE any other imports
 def prepare_environment():
     req_path = "/opt/ml/processing/input/reqs/requirements.txt"
     if os.path.exists(req_path):
@@ -17,12 +18,14 @@ def prepare_environment():
 
 prepare_environment()
 
+# STAGE 2: Standard Imports
 import boto3
 import pandas as pd
 import polars as pl
 import joblib
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
+
 
 class VotingModel(BaseEstimator, ClassifierMixin):
     def __init__(self, estimators):
@@ -33,13 +36,16 @@ class VotingModel(BaseEstimator, ClassifierMixin):
         y_preds = [estimator.predict_proba(X) for estimator in self.estimators]
         return np.mean(y_preds, axis=0)
 
+
 def main():
+    # Fix for unpickling custom classes
     import __main__
     __main__.VotingModel = VotingModel
 
     s3 = boto3.client("s3")
     bucket = "sg-home-credit"
 
+    # Define paths
     test_path, model_path = "/tmp/test.csv", "/tmp/model.pkl"
     output_dir = "/opt/ml/processing/evaluation"
     os.makedirs(output_dir, exist_ok=True)
@@ -59,20 +65,30 @@ def main():
     model = joblib.load(model_path)
 
     # ---------------------------------------------------------
-    # FIX 1: Restore categorical dtype (required by LightGBM)
+    # 1) Get feature names and categorical features from model
     # ---------------------------------------------------------
-    for col in X_test.select_dtypes(include=["object"]).columns:
-        X_test[col] = X_test[col].astype("category")
+    base_est = model.estimators[0]
+    trained_cols = list(base_est.feature_name_)
+    cat_feats = list(getattr(base_est, "categorical_feature_", []))
 
     # ---------------------------------------------------------
-    # FIX 2: Align columns with model training order
+    # 2) Align columns with training (order + subset)
+    #    - keep only columns the model knows
+    #    - reindex to exact training order
     # ---------------------------------------------------------
-    trained_cols = model.estimators[0].feature_name_
     X_test = X_test.reindex(columns=trained_cols)
+
+    # ---------------------------------------------------------
+    # 3) Ensure categorical columns have dtype 'category'
+    # ---------------------------------------------------------
+    for col in cat_feats:
+        if col in X_test.columns:
+            X_test[col] = X_test[col].astype("category")
 
     print("Predicting...")
     y_pred = model.predict_proba(X_test)[:, 1]
 
+    # Save results
     output_df = pl.DataFrame({
         "case_id": df["case_id"],
         "score": y_pred
@@ -84,6 +100,7 @@ def main():
     print("Uploading results to Gold layer...")
     s3.upload_file(local_csv, bucket, "home-credit/gold/sample_suggestions.csv")
     print("Execution complete.")
+
 
 if __name__ == "__main__":
     main()
