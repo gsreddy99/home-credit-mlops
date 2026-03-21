@@ -6,12 +6,13 @@ phases:
       python: 3.11
     commands:
       - pip install --upgrade pip
-      - pip install -U "sagemaker>=2.230.0" boto3  # force latest/recent
-      # remove pinned old version if any
-      # keep other installs: pandas joblib etc. if needed
+      - pip uninstall -y sagemaker   # remove v3 if present
+      - pip install "sagemaker<3.0.0" boto3  # installs latest v2.x (e.g. 2.229+)
+      # Keep other packages if needed: pandas joblib pytz polars lightgbm scikit-learn
+      # Optionally pin a specific v2: pip install sagemaker==2.229.0
   build:
     commands:
       - echo "SDK version:"
-      - pip show sagemaker | grep Version   # log it for visibility
+      - pip show sagemaker | grep Version   # should now show 2.x
       - python src/pipeline.py --update
       - python src/pipeline.py --run
