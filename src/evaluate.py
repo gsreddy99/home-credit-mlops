@@ -81,10 +81,18 @@ def main():
     # Align columns (missing become NaN)
     X_test = X_test.reindex(columns=trained_cols)
 
-    # Force LightGBM to ignore categorical metadata
+    # ---------------------------------------------------------
+    # BYPASS ALL LIGHTGBM FEATURE VALIDATION
+    # ---------------------------------------------------------
     for est in model.estimators:
-        est._Booster.pandas_categorical = False
-        est._Booster.categorical_feature = []
+        booster = est._Booster
+
+        # LightGBM expects lists, not booleans
+        booster.pandas_categorical = []
+        booster.categorical_feature = []
+
+        # Force feature_name to match the input
+        booster.feature_name = trained_cols
 
     print("\nPredicting...")
     y_pred = model.predict_proba(X_test)[:, 1]
