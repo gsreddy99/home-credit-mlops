@@ -8,6 +8,7 @@ from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.processing import ScriptProcessor
 from sagemaker.workflow.steps import ProcessingStep
 import sagemaker.processing
+from sagemaker import image_uris
 
 
 def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
