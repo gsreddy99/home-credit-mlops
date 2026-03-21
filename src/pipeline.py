@@ -42,6 +42,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         name="Preprocess",
         processor=preprocess,
         code="src/preprocess.py",
+        dependencies=["src/requirements.txt"],
         outputs=[
             sagemaker.processing.ProcessingOutput(
                 output_name="train",
@@ -77,6 +78,7 @@ def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
         name="EvaluateModel",
         processor=evaluate,
         code="src/evaluate.py",
+        dependencies=["src/requirements.txt"],
         outputs=[
             sagemaker.processing.ProcessingOutput(
                 output_name="evaluation",

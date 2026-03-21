@@ -1,0 +1,2 @@
+lightgbm>=4.0.0
+# Optionally: lightgbm==4.3.0  # pin to match your training version if you know it
