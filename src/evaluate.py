@@ -8,61 +8,104 @@ import boto3
 import pandas as pd
 import joblib
 import tempfile
+import importlib
 
 
 BUCKET = "sg-home-credit"
 
 
-def install_lightgbm_if_missing():
-    """Install lightgbm at runtime if not already present"""
+def run_pip_install(package_spec, upgrade_only=False):
+    """Install or upgrade a package at runtime"""
+    flag = "--upgrade" if upgrade_only else "--force-reinstall"
+    print(f"Running pip install {flag} {package_spec}")
     try:
-        import lightgbm
-        print("lightgbm is already installed")
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install",
+            "--no-cache-dir", flag, package_spec
+        ])
+        print(f"Success: {package_spec}")
+    except Exception as e:
+        print(f"Failed to install/upgrade {package_spec}: {e}", file=sys.stderr)
+        raise
+
+
+def ensure_dependency(package_name, min_version=None, install_spec=None):
+    """Check if package is importable and meets min version; install/upgrade if needed"""
+    if install_spec is None:
+        install_spec = package_name
+
+    try:
+        pkg = importlib.import_module(package_name)
+        version = getattr(pkg, "__version__", "unknown")
+        print(f"{package_name} version: {version}")
+
+        if min_version and version != "unknown":
+            from packaging import version as ver
+            if ver.parse(version) < ver.parse(min_version):
+                print(f"{package_name} {version} < {min_version} → upgrading")
+                run_pip_install(f"{install_spec}>={min_version}", upgrade_only=True)
+                # Re-import after upgrade
+                importlib.invalidate_caches()
+                pkg = importlib.import_module(package_name)
+                print(f"Upgraded {package_name} to {getattr(pkg, '__version__', 'unknown')}")
+        return pkg
+
     except ImportError:
-        print("lightgbm not found → installing now...")
-        try:
-            subprocess.check_call([
-                sys.executable, "-m", "pip", "install",
-                "--no-cache-dir", "lightgbm>=4.0.0"
-            ])
-            print("lightgbm installed successfully")
-            import lightgbm  # verify
-        except Exception as e:
-            print(f"Failed to install lightgbm: {e}", file=sys.stderr)
-            raise
+        print(f"{package_name} not found → installing")
+        run_pip_install(install_spec)
+        importlib.invalidate_caches()
+        return importlib.import_module(package_name)
+
+    except Exception as e:
+        print(f"Unexpected error checking {package_name}: {e}", file=sys.stderr)
+        raise
+
+
+def prepare_environment():
+    """Ensure all likely required packages are present and compatible"""
+    print("Checking / preparing runtime environment...")
+
+    # Order matters somewhat: numpy first (affects many others)
+    ensure_dependency("numpy", min_version="2.0.0")
+
+    # Then lightgbm (your model core)
+    ensure_dependency("lightgbm", min_version="4.0.0")
+
+    # scikit-learn – very common for lightgbm sklearn API
+    ensure_dependency("sklearn", install_spec="scikit-learn", min_version="1.0.0")
+
+    # scipy – often pulled by lightgbm / sklearn
+    ensure_dependency("scipy")
+
+    # pandas – already used heavily in script
+    ensure_dependency("pandas", min_version="1.5.0")
+
+    print("Environment preparation finished.")
 
 
 def download_file_from_s3(key, required=True, description="file"):
-    """Download from S3 with better error handling"""
     s3 = boto3.client("s3")
     full_path = f"s3://{BUCKET}/{key}"
     print(f"Downloading {description}: {full_path}")
 
     try:
-        # Check if object exists
         s3.head_object(Bucket=BUCKET, Key=key)
     except s3.exceptions.ClientError as e:
-        error_code = e.response.get('Error', {}).get('Code')
-        if error_code == '404':
+        if e.response.get('Error', {}).get('Code') == '404':
             msg = f"File not found: {full_path}"
             if required:
                 print(msg, file=sys.stderr)
                 raise FileNotFoundError(msg)
             else:
-                print(msg + " → continuing with fallback")
+                print(msg + " → using fallback")
                 return None
         else:
-            print(f"S3 error: {e}", file=sys.stderr)
             raise
 
-    try:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            s3.download_file(BUCKET, key, tmp.name)
-            print(f"Downloaded successfully: {full_path}")
-            return tmp.name
-    except Exception as e:
-        print(f"Download failed: {e}", file=sys.stderr)
-        raise
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        s3.download_file(BUCKET, key, tmp.name)
+        print(f"Downloaded: {full_path}")
+        return tmp.name
 
 
 class VotingModel:
@@ -75,45 +118,40 @@ class VotingModel:
 
 
 def evaluate_and_update(output_dir: str):
-    # Install lightgbm before trying to load the model
-    install_lightgbm_if_missing()
+    # Prepare dependencies first
+    prepare_environment()
 
     s3 = boto3.client("s3")
 
     # ── Input paths ──────────────────────────────────────────────────────────────
     model_key   = "home-credit/model/aiml_model.pkl"
     test_key    = "home-credit/silver/test/test.csv"
-    sample_key  = "home-credit/model/sample_suggestions.csv"   # change if needed
+    sample_key  = "home-credit/model/sample_suggestions.csv"   # ← change if actually sample_submission.csv
 
-    print(f"Loading model:    s3://{BUCKET}/{model_key}")
-    print(f"Loading test:     s3://{BUCKET}/{test_key}")
-    print(f"Loading template: s3://{BUCKET}/{sample_key}")
+    print(f"Model:    s3://{BUCKET}/{model_key}")
+    print(f"Test:     s3://{BUCKET}/{test_key}")
+    print(f"Template: s3://{BUCKET}/{sample_key}")
 
-    # Required files
     model_path  = download_file_from_s3(model_key, required=True, description="model")
-    test_path   = download_file_from_s3(test_key, required=True, description="test data")
+    test_path   = download_file_from_s3(test_key, required=True, description="test")
 
-    # Optional sample template
     sample_path = download_file_from_s3(sample_key, required=False, description="submission template")
 
-    # Load model and test data
-    print("Loading pickled model...")
+    # Load model
+    print("Loading model...")
     model = joblib.load(model_path)
     print("Model loaded successfully")
 
     df_test = pd.read_csv(test_path)
 
-    # Handle sample template or fallback
     if sample_path is not None:
-        print("Loading sample template...")
+        print("Loading template...")
         df_sample = pd.read_csv(sample_path)
     else:
-        print("No sample template found → creating fallback from test case_ids")
+        print("No template found → fallback from test case_ids")
         df_sample = df_test[["case_id"]].copy()
-        # If your submission needs different column name (e.g. SK_ID_CURR), rename here:
-        # df_sample = df_sample.rename(columns={"case_id": "SK_ID_CURR"})
 
-    # ── Prediction ───────────────────────────────────────────────────────────────
+    # ── Predict ────────────────────────────────────────────────────────────────
     X_test = df_test.drop(columns=["case_id", "WEEK_NUM"], errors="ignore")
     X_test.index = df_test["case_id"]
 
@@ -125,7 +163,7 @@ def evaluate_and_update(output_dir: str):
     df_result = df_sample[["case_id"]].merge(df_pred, on="case_id", how="left")
     df_result["score"] = df_result["score"].fillna(0.005)
 
-    # ── Save & upload ────────────────────────────────────────────────────────────
+    # ── Save & upload ──────────────────────────────────────────────────────────
     os.makedirs(output_dir, exist_ok=True)
     local_path = os.path.join(output_dir, "sample_suggestions.csv")
     df_result.to_csv(local_path, index=False)
@@ -133,7 +171,7 @@ def evaluate_and_update(output_dir: str):
     gold_key = "home-credit/gold/sample_suggestions.csv"
     s3.upload_file(local_path, BUCKET, gold_key)
 
-    print(f"✓ Predictions saved and uploaded to: s3://{BUCKET}/{gold_key}")
+    print(f"✓ Uploaded to: s3://{BUCKET}/{gold_key}")
 
 
 if __name__ == "__main__":
