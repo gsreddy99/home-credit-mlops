@@ -3,15 +3,11 @@ import os
 import sys
 import subprocess
 
-# STAGE 1: Install dependencies BEFORE any other imports
 def prepare_environment():
     req_path = "/opt/ml/processing/input/reqs/requirements.txt"
     if os.path.exists(req_path):
         print("Upgrading core dependencies (NumPy 2.0 + PyArrow)...")
-        # Upgrade pip first to ensure the best dependency resolution
         subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
-
-        # Install requirements
         subprocess.check_call([
             sys.executable, "-m", "pip", "install",
             "--no-cache-dir",
@@ -21,7 +17,6 @@ def prepare_environment():
 
 prepare_environment()
 
-# STAGE 2: Standard Imports
 import boto3
 import pandas as pd
 import polars as pl
@@ -29,7 +24,6 @@ import joblib
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-# Define the model class exactly as it was during training
 class VotingModel(BaseEstimator, ClassifierMixin):
     def __init__(self, estimators):
         super().__init__()
@@ -40,14 +34,12 @@ class VotingModel(BaseEstimator, ClassifierMixin):
         return np.mean(y_preds, axis=0)
 
 def main():
-    # Fix for unpickling custom classes
     import __main__
     __main__.VotingModel = VotingModel
 
     s3 = boto3.client("s3")
     bucket = "sg-home-credit"
 
-    # Define paths
     test_path, model_path = "/tmp/test.csv", "/tmp/model.pkl"
     output_dir = "/opt/ml/processing/evaluation"
     os.makedirs(output_dir, exist_ok=True)
@@ -63,11 +55,24 @@ def main():
     cols_to_drop = [c for c in ["case_id", "WEEK_NUM", "target"] if c in df.columns]
     X_test = df.drop(cols_to_drop).to_pandas()
 
-    print("Loading model and predicting...")
+    print("Loading model...")
     model = joblib.load(model_path)
+
+    # ---------------------------------------------------------
+    # FIX 1: Restore categorical dtype (required by LightGBM)
+    # ---------------------------------------------------------
+    for col in X_test.select_dtypes(include=["object"]).columns:
+        X_test[col] = X_test[col].astype("category")
+
+    # ---------------------------------------------------------
+    # FIX 2: Align columns with model training order
+    # ---------------------------------------------------------
+    trained_cols = model.estimators[0].feature_name_
+    X_test = X_test.reindex(columns=trained_cols)
+
+    print("Predicting...")
     y_pred = model.predict_proba(X_test)[:, 1]
 
-    # Save results
     output_df = pl.DataFrame({
         "case_id": df["case_id"],
         "score": y_pred
