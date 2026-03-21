@@ -27,6 +27,9 @@ import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 
+# ---------------------------------------------------------------------
+# VotingModel (same as training)
+# ---------------------------------------------------------------------
 class VotingModel(BaseEstimator, ClassifierMixin):
     def __init__(self, estimators):
         super().__init__()
@@ -37,6 +40,9 @@ class VotingModel(BaseEstimator, ClassifierMixin):
         return np.mean(y_preds, axis=0)
 
 
+# ---------------------------------------------------------------------
+# MAIN
+# ---------------------------------------------------------------------
 def main():
     # Fix for unpickling custom classes
     import __main__
@@ -63,29 +69,60 @@ def main():
 
     print("Loading model...")
     model = joblib.load(model_path)
-
-    # ---------------------------------------------------------
-    # 1) Get feature names and categorical features from model
-    # ---------------------------------------------------------
     base_est = model.estimators[0]
-    trained_cols = list(base_est.feature_name_)
-    cat_feats = list(getattr(base_est, "categorical_feature_", []))
 
-    # ---------------------------------------------------------
-    # 2) Align columns with training (order + subset)
-    #    - keep only columns the model knows
-    #    - reindex to exact training order
-    # ---------------------------------------------------------
+    # -----------------------------------------------------------------
+    # 1) Extract training metadata
+    # -----------------------------------------------------------------
+    trained_cols = list(base_est.feature_name_)
+    trained_cats = list(getattr(base_est, "categorical_feature_", []))
+
+    print("\n================ TRAINED FEATURE NAMES ================")
+    print(trained_cols)
+
+    print("\n================ TRAINED CATEGORICAL FEATURES ================")
+    print(trained_cats)
+
+    # -----------------------------------------------------------------
+    # 2) Compare with inference columns
+    # -----------------------------------------------------------------
+    test_cols = list(X_test.columns)
+
+    missing = [c for c in trained_cols if c not in test_cols]
+    extra = [c for c in test_cols if c not in trained_cols]
+
+    print("\n================ COLUMN COMPARISON ================")
+    print("Missing in TEST:", missing)
+    print("Extra in TEST:", extra)
+    print("Train column count:", len(trained_cols))
+    print("Test column count:", len(test_cols))
+
+    # -----------------------------------------------------------------
+    # 3) Check dtype mismatches for categorical features
+    # -----------------------------------------------------------------
+    print("\n================ CATEGORICAL DTYPE CHECK ================")
+    for col in trained_cats:
+        if col not in X_test.columns:
+            print(f"{col}: MISSING IN TEST")
+        else:
+            print(f"{col}: dtype={X_test[col].dtype}")
+
+    # -----------------------------------------------------------------
+    # 4) Align columns (still required for prediction)
+    # -----------------------------------------------------------------
     X_test = X_test.reindex(columns=trained_cols)
 
-    # ---------------------------------------------------------
-    # 3) Ensure categorical columns have dtype 'category'
-    # ---------------------------------------------------------
-    for col in cat_feats:
+    # -----------------------------------------------------------------
+    # 5) Cast categorical columns to category
+    # -----------------------------------------------------------------
+    for col in trained_cats:
         if col in X_test.columns:
             X_test[col] = X_test[col].astype("category")
 
-    print("Predicting...")
+    # -----------------------------------------------------------------
+    # 6) Predict (may still error if mismatch persists)
+    # -----------------------------------------------------------------
+    print("\nPredicting...")
     y_pred = model.predict_proba(X_test)[:, 1]
 
     # Save results
