@@ -43,7 +43,7 @@ def get_pipeline(region, role, bucket):
 
     # Explicitly pass the session to the Pipeline object
     return Pipeline(
-        name="HomeCreditPipeline",
+        name="HomeCreditBatchPipeline",
         steps=[step_evaluate],
         sagemaker_session=session
     )
