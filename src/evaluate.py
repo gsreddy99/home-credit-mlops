@@ -9,15 +9,23 @@ import tempfile
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-# 1. BOOTSTRAP: Install dependencies from the pipeline-injected requirements file
+# 1. BOOTSTRAP: Install bridged dependencies
 def install_requirements():
     req_path = "/opt/ml/processing/input/reqs/requirements.txt"
     if os.path.exists(req_path):
-        print(f"Installing dependencies from {req_path}...")
+        print(f"Installing bridged dependencies from {req_path}...")
         try:
-            # Upgrade pip for better resolution and install pinned requirements
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", req_path])
+            # We use --force-reinstall to ensure the container's 1.24 version
+            # is replaced by the 1.26.4 bridge version
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "-r", req_path, "--force-reinstall"])
+
+            # CRITICAL: Fix for models saved with NumPy 2.0 while running on 1.26.x
+            # This maps the new _core location back to the old one
+            import numpy
+            if not hasattr(numpy, "_core"):
+                sys.modules["numpy._core"] = numpy
+                print("Mapped numpy._core to numpy for 1.x compatibility")
+
             import importlib
             importlib.invalidate_caches()
         except Exception as e:
@@ -26,21 +34,9 @@ def install_requirements():
 
 install_requirements()
 
-# 2. MONKEY PATCH: Fix NumPy 2.0 compatibility for legacy sub-dependencies
-def patch_numpy():
-    if not hasattr(np, "bool"):
-        np.bool = bool
-    if not hasattr(np, "float"):
-        np.float = float
-    if not hasattr(np, "int"):
-        np.int = int
-    print("Applied NumPy 2.0 compatibility patches (bool, float, int)")
-
-patch_numpy()
-
 BUCKET = "sg-home-credit"
 
-# 3. UPDATED VOTING MODEL (Matches Training)
+# 2. VOTING MODEL (Matches Training)
 class VotingModel(BaseEstimator, ClassifierMixin):
     def __init__(self, estimators):
         super().__init__()
@@ -58,7 +54,6 @@ class VotingModel(BaseEstimator, ClassifierMixin):
         return np.mean(y_preds, axis=0)
 
 def evaluate_and_update(output_dir: str):
-    # Register the class in the main module for the unpickler
     import __main__
     __main__.VotingModel = VotingModel
 
@@ -82,14 +77,13 @@ def evaluate_and_update(output_dir: str):
     sample_path = download_s3(sample_key, required=False)
 
     print("Loading model and performing inference...")
+    # 1.26.4 + the _core mapping resolves the TypeError
     model = joblib.load(model_path)
     df_test = pd.read_csv(test_path)
 
-    # Drop non-feature columns
     X_test = df_test.drop(columns=["case_id", "WEEK_NUM", "target"], errors="ignore")
 
-    print(f"Inference for {len(X_test)} records...")
-    # Use index 1 for positive class probability
+    print(f"Running inference on {len(X_test)} records...")
     y_pred = model.predict_proba(X_test)[:, 1]
 
     df_result = pd.DataFrame({"case_id": df_test["case_id"], "score": y_pred})
@@ -104,7 +98,7 @@ def evaluate_and_update(output_dir: str):
     df_result.to_csv(local_path, index=False)
 
     s3.upload_file(local_path, BUCKET, "home-credit/gold/sample_suggestions.csv")
-    print("Process complete.")
+    print("Inference successful. Output uploaded.")
 
 if __name__ == "__main__":
     import argparse
