@@ -7,10 +7,15 @@ import subprocess
 def prepare_environment():
     req_path = "/opt/ml/processing/input/reqs/requirements.txt"
     if os.path.exists(req_path):
-        print("Installing Polars, LightGBM, and NumPy 2.0...")
+        print("Upgrading core dependencies (NumPy 2.0 + PyArrow)...")
+        # Upgrade pip first to ensure the best dependency resolution
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+
+        # Install requirements
         subprocess.check_call([
             sys.executable, "-m", "pip", "install",
-            "--no-cache-dir", "-r", req_path
+            "--no-cache-dir",
+            "-r", req_path
         ])
         print("✓ Environment ready.")
 
