@@ -11,6 +11,7 @@ from sagemaker import image_uris
 def get_pipeline(region, role, bucket):
     session = PipelineSession(default_bucket=bucket)
 
+    # Use the Scikit-Learn image to allow NumPy 2.x upgrades
     eval_image = image_uris.retrieve(
         framework="sklearn",
         region=region,
@@ -32,22 +33,27 @@ def get_pipeline(region, role, bucket):
         processor=evaluate_processor,
         code="src/evaluate.py",
         inputs=[
+            # Ensure requirements.txt is passed to the container
             ProcessingInput(source="src/requirements.txt", destination="/opt/ml/processing/input/reqs")
         ],
         outputs=[
             ProcessingOutput(output_name="evaluation", source="/opt/ml/processing/evaluation")
         ]
     )
-    # Ensure the name matches what you expect in the console
-    return Pipeline(name="HomeCreditPipeline", steps=[step_evaluate], sagemaker_session=session)
+
+    return Pipeline(
+        name="HomeCreditPipeline",
+        steps=[step_evaluate],
+        sagemaker_session=session
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--update", action="store_true", help="Update pipeline definition")
-    parser.add_argument("--run", action="store_true", help="Trigger a new execution")
+    parser.add_argument("--update", action="store_true")
+    parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
 
-    # Get environment variables (Ensure these are set in your CodeBuild project)
+    # These environment variables must be set in your CodeBuild project
     region = os.environ.get("AWS_REGION", "us-east-1")
     role = os.environ.get("SAGEMAKER_ROLE_ARN")
     bucket = os.environ.get("BUCKET", "sg-home-credit")
@@ -55,10 +61,10 @@ if __name__ == "__main__":
     pipeline = get_pipeline(region, role, bucket)
 
     if args.update:
-        print(f"Upserting pipeline: {pipeline.name}")
+        print(f"Updating pipeline definition: {pipeline.name}")
         pipeline.upsert(role_arn=role)
 
     if args.run:
-        print(f"Starting execution for: {pipeline.name}")
+        print(f"Starting pipeline execution...")
         execution = pipeline.start()
-        print(f"Execution started! ARN: {execution.arn}")
+        print(f"Execution started: {execution.arn}")
