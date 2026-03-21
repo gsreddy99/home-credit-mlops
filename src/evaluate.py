@@ -16,6 +16,13 @@ def download_file_from_s3(key):
         s3.download_file(BUCKET, key, tmp.name)
         return tmp.name
 
+class VotingModel:
+    def __init__(self, estimators):
+        self.estimators = estimators
+
+    def predict_proba(self, X):
+        probs = [est.predict_proba(X) for est in self.estimators]
+        return sum(probs) / len(probs)
 
 def evaluate_and_update(output_dir: str):
 
