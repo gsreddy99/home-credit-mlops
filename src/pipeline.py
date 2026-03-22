@@ -12,7 +12,7 @@ from sagemaker import image_uris
 def get_pipeline(region, role, bucket):
     session = PipelineSession(default_bucket=bucket)
 
-    # Use the same sklearn container for both steps
+    # Use the same sklearn container for all steps
     image_uri = image_uris.retrieve(
         framework="sklearn",
         region=region,
@@ -56,7 +56,38 @@ def get_pipeline(region, role, bucket):
     )
 
     # ============================================================
-    # 2) EVALUATE STEP
+    # 2) TRAIN STEP
+    # ============================================================
+    train_processor = ScriptProcessor(
+        image_uri=image_uri,
+        command=["python3"],
+        instance_type="ml.m5.2xlarge",
+        instance_count=1,
+        role=role,
+        sagemaker_session=session,
+    )
+
+    step_train = ProcessingStep(
+        name="TrainModel",
+        processor=train_processor,
+        code="src/train.py",
+        job_arguments=[
+            "--model_output", "/opt/ml/processing/model"
+        ],
+        outputs=[
+            ProcessingOutput(
+                output_name="model",
+                source="/opt/ml/processing/model",
+                destination=f"s3://{bucket}/home-credit/model/"
+            )
+        ],
+    )
+
+    # Train depends on Preprocess
+    step_train.add_depends_on([step_preprocess])
+
+    # ============================================================
+    # 3) EVALUATE STEP
     # ============================================================
     evaluate_processor = ScriptProcessor(
         image_uri=image_uri,
@@ -86,15 +117,15 @@ def get_pipeline(region, role, bucket):
         ],
     )
 
-    # Ensure Evaluate runs AFTER Preprocess
-    step_evaluate.add_depends_on([step_preprocess])
+    # Evaluate depends on Train
+    step_evaluate.add_depends_on([step_train])
 
     # ============================================================
     # PIPELINE
     # ============================================================
     return Pipeline(
         name="HomeCreditBatchPipeline",
-        steps=[step_preprocess, step_evaluate],
+        steps=[step_preprocess, step_train, step_evaluate],
         sagemaker_session=session,
     )
 
