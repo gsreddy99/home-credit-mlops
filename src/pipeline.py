@@ -74,6 +74,12 @@ def get_pipeline(region, role, bucket):
         job_arguments=[
             "--model_output", "/opt/ml/processing/model"
         ],
+        inputs=[
+            ProcessingInput(
+                source="src/requirements.txt",
+                destination="/opt/ml/processing/input/reqs"
+            )
+        ],
         outputs=[
             ProcessingOutput(
                 output_name="model",
