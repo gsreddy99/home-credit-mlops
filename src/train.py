@@ -5,7 +5,7 @@ import sys
 import subprocess
 
 # --------------------------------------------------------
-# Install dependencies (same pattern as evaluate.py)
+# MATCH evaluate.py: install dependencies at runtime
 # --------------------------------------------------------
 def prepare_environment():
     req_path = "/opt/ml/processing/input/reqs/requirements.txt"
@@ -36,6 +36,18 @@ from sklearn.model_selection import StratifiedGroupKFold
 BUCKET = "sg-home-credit"
 
 
+# --------------------------------------------------------
+# FIX: VotingModel must be top-level for pickling
+# --------------------------------------------------------
+class VotingModel:
+    def __init__(self, estimators):
+        self.estimators = estimators
+
+    def predict_proba(self, X):
+        probs = [est.predict_proba(X) for est in self.estimators]
+        return sum(probs) / len(probs)
+
+
 def download_file_from_s3(key):
     s3 = boto3.client("s3")
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
@@ -62,7 +74,7 @@ def train_model(model_output_path):
     y = df["target"]
     groups = df["WEEK_NUM"]
 
-    # Convert object columns to category (LightGBM requirement)
+    # Convert object columns to category
     for col in X.columns:
         if X[col].dtype == "object":
             X[col] = X[col].astype("category")
@@ -78,7 +90,7 @@ def train_model(model_output_path):
         "colsample_bynode": 0.8,
         "verbose": -1,
         "random_state": 42,
-        "device": "cpu",
+        "device": "cpu",   # CPU mode for SageMaker processing
     }
 
     cv = StratifiedGroupKFold(n_splits=5, shuffle=False)
@@ -102,16 +114,8 @@ def train_model(model_output_path):
         models.append(model)
 
     # --------------------------------------------------------
-    # 3. Create voting ensemble
+    # 3. Create voting ensemble (now picklable)
     # --------------------------------------------------------
-    class VotingModel:
-        def __init__(self, estimators):
-            self.estimators = estimators
-
-        def predict_proba(self, X):
-            probs = [est.predict_proba(X) for est in self.estimators]
-            return sum(probs) / len(probs)
-
     final_model = VotingModel(models)
 
     # --------------------------------------------------------
