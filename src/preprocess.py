@@ -1,25 +1,13 @@
 # filename: src/preprocess.py
 
-import os
-import sys
 import subprocess
+import sys
 
-# Install dependencies (same pattern as evaluate/train)
-def prepare_environment():
-    req_path = "/opt/ml/processing/input/reqs/requirements.txt"
-    if os.path.exists(req_path):
-        print("Installing preprocess dependencies...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
-        subprocess.check_call([
-            sys.executable, "-m", "pip", "install",
-            "--no-cache-dir",
-            "-r", req_path
-        ])
-        print("✓ Preprocess environment ready.")
-
-prepare_environment()
+# Install ONLY polars (safe, lightweight, avoids container conflicts)
+subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "polars"])
 
 import argparse
+import os
 import boto3
 import polars as pl
 
