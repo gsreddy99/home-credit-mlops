@@ -1,6 +1,29 @@
 # filename: src/train.py
 
 import os
+import sys
+import subprocess
+
+# --------------------------------------------------------
+# MATCH evaluate.py: install dependencies at runtime
+# --------------------------------------------------------
+def prepare_environment():
+    req_path = "/opt/ml/processing/input/reqs/requirements.txt"
+    if os.path.exists(req_path):
+        print("Installing training dependencies (LightGBM, NumPy 2.0, etc.)...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install",
+            "--no-cache-dir",
+            "-r", req_path
+        ])
+        print("✓ Training environment ready.")
+
+prepare_environment()
+
+# --------------------------------------------------------
+# Standard imports AFTER dependency installation
+# --------------------------------------------------------
 import argparse
 import pandas as pd
 import joblib
@@ -10,7 +33,6 @@ from datetime import datetime
 import lightgbm as lgb
 from sklearn.model_selection import StratifiedGroupKFold
 
-# Hard-coded bucket name
 BUCKET = "sg-home-credit"
 
 
@@ -31,7 +53,7 @@ def train_model(model_output_path):
 
     train_path = download_file_from_s3(train_key)
     df = pd.read_csv(train_path)
-    os.unlink(train_path)  # clean up
+    os.unlink(train_path)
 
     # --------------------------------------------------------
     # 2. Prepare data
@@ -51,7 +73,7 @@ def train_model(model_output_path):
         "colsample_bynode": 0.8,
         "verbose": -1,
         "random_state": 42,
-        "device": "gpu",           # change to "cpu" if needed
+        "device": "gpu",
     }
 
     cv = StratifiedGroupKFold(n_splits=5, shuffle=False)
@@ -88,11 +110,10 @@ def train_model(model_output_path):
     final_model = VotingModel(models)
 
     # --------------------------------------------------------
-    # 4. Save model with timestamp + latest version
+    # 4. Save model
     # --------------------------------------------------------
     os.makedirs(model_output_path, exist_ok=True)
 
-    # Generate timestamp (example: 20260320_030559)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     timestamped_filename = f"model_{timestamp}.pkl"
     latest_filename = "model.pkl"
@@ -101,22 +122,20 @@ def train_model(model_output_path):
     local_latest_path = os.path.join(model_output_path, latest_filename)
 
     joblib.dump(final_model, local_timestamped_path)
-    joblib.dump(final_model, local_latest_path)  # overwrite latest
+    joblib.dump(final_model, local_latest_path)
 
     print(f"✓ Timestamped model saved to {local_timestamped_path}")
     print(f"✓ Latest model saved to {local_latest_path}")
 
     # --------------------------------------------------------
-    # 5. Upload both versions to S3
+    # 5. Upload to S3
     # --------------------------------------------------------
     s3 = boto3.client("s3")
 
-    # Upload timestamped version (historical)
-    timestamped_key = f"home-credit/model/archive/model_{timestamp}.pkl"
+    timestamped_key = f"home-credit/model/archive/{timestamped_filename}"
     s3.upload_file(local_timestamped_path, BUCKET, timestamped_key)
     print(f"✓ Uploaded timestamped model to s3://{BUCKET}/{timestamped_key}")
 
-    # Upload latest version (overwrites previous latest)
     latest_key = "home-credit/model/model.pkl"
     s3.upload_file(local_latest_path, BUCKET, latest_key)
     print(f"✓ Uploaded latest model to s3://{BUCKET}/{latest_key}")
@@ -124,7 +143,7 @@ def train_model(model_output_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_output", type=str, default="/opt/ml/model")
+    parser.add_argument("--model_output", type=str, default="/opt/ml/processing/model")
     args = parser.parse_args()
 
     train_model(args.model_output)
