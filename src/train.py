@@ -78,7 +78,7 @@ def train_model(model_output_path):
         "colsample_bynode": 0.8,
         "verbose": -1,
         "random_state": 42,
-        "device": "gpu",
+        "device": "cpu",
     }
 
     cv = StratifiedGroupKFold(n_splits=5, shuffle=False)
