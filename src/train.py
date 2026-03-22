@@ -5,12 +5,12 @@ import sys
 import subprocess
 
 # --------------------------------------------------------
-# MATCH evaluate.py: install dependencies at runtime
+# Install dependencies (same pattern as evaluate.py)
 # --------------------------------------------------------
 def prepare_environment():
     req_path = "/opt/ml/processing/input/reqs/requirements.txt"
     if os.path.exists(req_path):
-        print("Installing training dependencies (LightGBM, NumPy 2.0, etc.)...")
+        print("Installing training dependencies...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
         subprocess.check_call([
             sys.executable, "-m", "pip", "install",
@@ -61,6 +61,11 @@ def train_model(model_output_path):
     X = df.drop(columns=["target", "case_id", "WEEK_NUM"], errors="ignore")
     y = df["target"]
     groups = df["WEEK_NUM"]
+
+    # Convert object columns to category (LightGBM requirement)
+    for col in X.columns:
+        if X[col].dtype == "object":
+            X[col] = X[col].astype("category")
 
     params = {
         "boosting_type": "gbdt",
@@ -116,7 +121,7 @@ def train_model(model_output_path):
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     timestamped_filename = f"model_{timestamp}.pkl"
-    latest_filename = "model.pkl"
+    latest_filename = "aiml_model.pkl"   # match evaluate.py
 
     local_timestamped_path = os.path.join(model_output_path, timestamped_filename)
     local_latest_path = os.path.join(model_output_path, latest_filename)
@@ -136,7 +141,7 @@ def train_model(model_output_path):
     s3.upload_file(local_timestamped_path, BUCKET, timestamped_key)
     print(f"✓ Uploaded timestamped model to s3://{BUCKET}/{timestamped_key}")
 
-    latest_key = "home-credit/model/model.pkl"
+    latest_key = "home-credit/model/aiml_model.pkl"
     s3.upload_file(local_latest_path, BUCKET, latest_key)
     print(f"✓ Uploaded latest model to s3://{BUCKET}/{latest_key}")
 

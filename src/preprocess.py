@@ -1,12 +1,27 @@
-# src/preprocess.py
+# filename: src/preprocess.py
+
+import os
+import sys
 import subprocess
-subprocess.run(["pip", "install", "polars", "lightgbm"], check=True)
+
+# Install dependencies (same pattern as evaluate/train)
+def prepare_environment():
+    req_path = "/opt/ml/processing/input/reqs/requirements.txt"
+    if os.path.exists(req_path):
+        print("Installing preprocess dependencies...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pip"])
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install",
+            "--no-cache-dir",
+            "-r", req_path
+        ])
+        print("✓ Preprocess environment ready.")
+
+prepare_environment()
 
 import argparse
-import os
 import boto3
 import polars as pl
-import gc
 
 
 # -------------------------------------------------------------------------
@@ -43,19 +58,25 @@ class Pipeline:
     def filter_cols(df: pl.DataFrame) -> pl.DataFrame:
         keep = {"target", "case_id", "WEEK_NUM"}
         to_drop = []
+
         for col in df.columns:
             if col in keep:
                 continue
-            null_rate = df[col].is_null().mean()
-            if null_rate > 0.96:
+
+            # Drop >96% null
+            if df[col].is_null().mean() > 0.96:
                 to_drop.append(col)
                 continue
+
+            # Drop high-cardinality strings
             if df[col].dtype == pl.Utf8:
                 n_unique = df[col].n_unique()
                 if n_unique <= 1 or n_unique > 200:
                     to_drop.append(col)
+
         if to_drop:
             df = df.drop(to_drop)
+
         return df
 
 
@@ -83,7 +104,7 @@ class Aggregator:
 
 
 # -------------------------------------------------------------------------
-#  S3-aware file loaders (fixes glob issue)
+#  S3-aware file loaders
 # -------------------------------------------------------------------------
 
 def list_s3_parquet(bucket, prefix):
@@ -121,7 +142,6 @@ def feature_engineering(df_base, depth_0, depth_1, depth_2):
         pl.col("date_decision").dt.weekday().alias("weekday_decision"),
     ])
 
-    # Unique suffix per join to avoid DuplicateError
     for group_idx, group in enumerate([depth_0, depth_1, depth_2]):
         for table_idx, df_depth in enumerate(group):
             if df_depth is not None and df_depth.height > 0:
@@ -133,10 +153,10 @@ def feature_engineering(df_base, depth_0, depth_1, depth_2):
 
 
 def to_pandas(df: pl.DataFrame):
-    pdf = df.to_pandas()  # works with Pandas 1.1.3
-    cat_cols = pdf.select_dtypes(include=["object", "category"]).columns.tolist()
-    pdf[cat_cols] = pdf[cat_cols].astype("category")
-    return pdf, cat_cols
+    pdf = df.to_pandas()
+    obj_cols = pdf.select_dtypes(include=["object"]).columns
+    pdf[obj_cols] = pdf[obj_cols].astype("category")
+    return pdf
 
 
 # -------------------------------------------------------------------------
@@ -186,7 +206,7 @@ def main():
     print("Starting train feature engineering...")
     df_train = feature_engineering(**train_store)
     df_train = Pipeline.filter_cols(df_train)
-    df_train_pd, cat_cols = to_pandas(df_train)
+    df_train_pd = to_pandas(df_train)
 
     # --------------------------
     # TEST
@@ -227,7 +247,7 @@ def main():
 
     common_cols = [c for c in df_train.columns if c != "target"]
     df_test = df_test.select([c for c in common_cols if c in df_test.columns])
-    df_test_pd, _ = to_pandas(df_test)
+    df_test_pd = to_pandas(df_test)
 
     # --------------------------
     # Save & Upload
