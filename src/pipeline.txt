@@ -1,121 +1,72 @@
 # filename: src/pipeline.py
-
 import os
 import argparse
 import sagemaker
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.pipeline_context import PipelineSession
-from sagemaker.processing import ScriptProcessor
+from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
 from sagemaker.workflow.steps import ProcessingStep
-import sagemaker.processing
 from sagemaker import image_uris
 
-
-def get_pipeline(region: str, role: str, bucket: str) -> Pipeline:
+def get_pipeline(region, role, bucket):
+    # Use PipelineSession to ensure the pipeline is managed by SageMaker
     session = PipelineSession(default_bucket=bucket)
 
-    # UPDATED IMAGE URI (modern container with NumPy 1.26+)
-    # Option 1: Preferred for XGBoost (small, has lightgbm in many versions, good for your use case)
-    image_uri = image_uris.retrieve(
-        framework="xgboost",
+    # Scikit-learn image allows for the NumPy 2.0 upgrade in evaluate.py
+    eval_image = image_uris.retrieve(
+        framework="sklearn",
         region=region,
-        version="1.7-1",          # Use a recent version: check https://docs.aws.amazon.com/sagemaker/latest/dg/xgboost.html or try "latest"
-        instance_type="ml.m5.2xlarge",  # optional, but can help select CPU/GPU variant
-        # image_scope="training",        # ← either omit this line entirely, or use "training"
+        version="1.2-1",
+        instance_type="ml.m5.2xlarge"
     )
 
-
-    ###########################################################################
-    # 1) PREPROCESS STEP
-    ###########################################################################
-    preprocess = ScriptProcessor(
-        image_uri=image_uri,
+    evaluate_processor = ScriptProcessor(
+        image_uri=eval_image,
         command=["python3"],
         instance_type="ml.m5.2xlarge",
         instance_count=1,
         role=role,
-        sagemaker_session=session,
-    )
-
-    step_preprocess = ProcessingStep(
-        name="Preprocess",
-        processor=preprocess,
-        code="src/preprocess.py",
-        outputs=[
-            sagemaker.processing.ProcessingOutput(
-                output_name="train",
-                source="/opt/ml/processing/train",
-                destination=f"s3://{bucket}/home-credit/silver/train/"
-            ),
-            sagemaker.processing.ProcessingOutput(
-                output_name="test",
-                source="/opt/ml/processing/test",
-                destination=f"s3://{bucket}/home-credit/silver/test/"
-            ),
-        ],
-        job_arguments=[
-            "--bucket", bucket,
-            "--train-prefix", "home-credit/bronze/train",
-            "--test-prefix", "home-credit/bronze/test",
-        ],
-    )
-
-    ###########################################################################
-    # 2) EVALUATE STEP
-    ###########################################################################
-    evaluate = ScriptProcessor(
-        image_uri=image_uri,
-        command=["python3"],
-        instance_type="ml.m5.2xlarge",
-        instance_count=1,
-        role=role,
-        sagemaker_session=session,
+        sagemaker_session=session
     )
 
     step_evaluate = ProcessingStep(
         name="EvaluateModel",
-        processor=evaluate,
+        processor=evaluate_processor,
         code="src/evaluate.py",
+        inputs=[
+            ProcessingInput(source="src/requirements.txt", destination="/opt/ml/processing/input/reqs")
+        ],
         outputs=[
-            sagemaker.processing.ProcessingOutput(
-                output_name="evaluation",
-                source="/opt/ml/processing/evaluation",
-                destination=f"s3://{bucket}/home-credit/gold/evaluation/"
-            )
-        ],
-        job_arguments=[
-            "--output_dir", "/opt/ml/processing/evaluation"
-        ],
+            ProcessingOutput(output_name="evaluation", source="/opt/ml/processing/evaluation")
+        ]
     )
 
-    step_evaluate.add_depends_on([step_preprocess])
-
+    # Explicitly pass the session to the Pipeline object
     return Pipeline(
         name="HomeCreditBatchPipeline",
-        steps=[step_preprocess, step_evaluate],
-        sagemaker_session=session,
+        steps=[step_evaluate],
+        sagemaker_session=session
     )
 
-
-def main():
+# --- MISSING BLOCK ADDED BELOW ---
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--update", action="store_true")
     parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
 
-    region = os.environ["AWS_REGION"]
-    role = os.environ["SAGEMAKER_ROLE_ARN"]
-    bucket = os.environ["BUCKET"]
+    # Environment variables set by CodeBuild
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    role = os.environ.get("SAGEMAKER_ROLE_ARN")
+    bucket = os.environ.get("BUCKET")
 
     pipeline = get_pipeline(region, role, bucket)
 
     if args.update:
-        pipeline.upsert(role_arn=role)
+        print(f"Upserting pipeline: {pipeline.name}")
+        pipeline.upsert(role_arn=role) #
 
     if args.run:
-        execution = pipeline.start()
-        print("Execution ARN:", execution.arn)
-
-
-if __name__ == "__main__":
-    main()
+        print(f"Starting execution for: {pipeline.name}")
+        execution = pipeline.start() #
+        print(f"Execution started! ARN: {execution.arn}")

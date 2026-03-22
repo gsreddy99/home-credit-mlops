@@ -79,35 +79,35 @@ def main():
     print(extra)
 
     # Align columns (missing become NaN)
-    X_test = X_test.reindex(columns=trained_cols)
-
-    # ---------------------------------------------------------
-    # BYPASS ALL LIGHTGBM FEATURE VALIDATION
-    # ---------------------------------------------------------
-    for est in model.estimators:
-        booster = est._Booster
-
-        # LightGBM expects lists, not booleans
-        booster.pandas_categorical = []
-        booster.categorical_feature = []
-
-        # Force feature_name to match the input
-        booster.feature_name = trained_cols
-
-    print("\nPredicting...")
-    y_pred = model.predict_proba(X_test)[:, 1]
-
-    output_df = pl.DataFrame({
-        "case_id": df["case_id"],
-        "score": y_pred
-    })
-
-    local_csv = os.path.join(output_dir, "sample_suggestions.csv")
-    output_df.write_csv(local_csv)
-
-    print("Uploading results to Gold layer...")
-    s3.upload_file(local_csv, bucket, "home-credit/gold/sample_suggestions.csv")
-    print("Execution complete.")
+#     X_test = X_test.reindex(columns=trained_cols)
+#
+#     # ---------------------------------------------------------
+#     # BYPASS ALL LIGHTGBM FEATURE VALIDATION
+#     # ---------------------------------------------------------
+#     for est in model.estimators:
+#         booster = est._Booster
+#
+#         # LightGBM expects lists, not booleans
+#         booster.pandas_categorical = []
+#         booster.categorical_feature = []
+#
+#         # Force feature_name to match the input
+#         booster.feature_name = trained_cols
+#
+#     print("\nPredicting...")
+#     y_pred = model.predict_proba(X_test)[:, 1]
+#
+#     output_df = pl.DataFrame({
+#         "case_id": df["case_id"],
+#         "score": y_pred
+#     })
+#
+#     local_csv = os.path.join(output_dir, "sample_suggestions.csv")
+#     output_df.write_csv(local_csv)
+#
+#     print("Uploading results to Gold layer...")
+#     s3.upload_file(local_csv, bucket, "home-credit/gold/sample_suggestions.csv")
+#     print("Execution complete.")
 
 
 if __name__ == "__main__":
