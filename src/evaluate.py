@@ -91,15 +91,17 @@ def main():
     print("\n================ EXTRA FEATURES ================")
     print(extra)
 
-    # Add missing columns as NaN
+    # ---------------------------------------------------------------------
+    # FIX 1: Add missing columns AS CATEGORY dtype
+    # ---------------------------------------------------------------------
     for col in missing:
-        X_test[col] = np.nan
+        X_test[col] = pd.Series([np.nan] * len(X_test), dtype="category")
 
     # Drop extra columns
     X_test = X_test[trained_cols]
 
     # ---------------------------------------------------------------------
-    # FIX: Convert object columns to category (same as train.py)
+    # FIX 2: Convert any remaining object columns → category
     # ---------------------------------------------------------------------
     for col in X_test.columns:
         if X_test[col].dtype == "object":
