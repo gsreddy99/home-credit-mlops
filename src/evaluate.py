@@ -42,9 +42,8 @@ class VotingModel(BaseEstimator, ClassifierMixin):
 # Main
 # -------------------------------------------------------------------------
 def main():
-    # Required for joblib to unpickle VotingModel
     import __main__
-    __main__.VotingModel = VotingModel
+    __main__.VotingModel = VotingModel  # required for joblib unpickling
 
     s3 = boto3.client("s3")
     bucket = "sg-home-credit"
@@ -100,16 +99,19 @@ def main():
     X_test = X_test[trained_cols]
 
     # ---------------------------------------------------------------------
+    # FIX: Convert object columns to category (same as train.py)
+    # ---------------------------------------------------------------------
+    for col in X_test.columns:
+        if X_test[col].dtype == "object":
+            X_test[col] = X_test[col].astype("category")
+
+    # ---------------------------------------------------------------------
     # BYPASS LIGHTGBM FEATURE VALIDATION
     # ---------------------------------------------------------------------
     for est in model.estimators:
         booster = est._Booster
-
-        # LightGBM expects lists, not booleans
         booster.pandas_categorical = []
         booster.categorical_feature = []
-
-        # Force feature_name to match aligned input
         booster.feature_name = trained_cols
 
     # ---------------------------------------------------------------------
