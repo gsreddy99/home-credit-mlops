@@ -68,10 +68,19 @@ def main():
     model = joblib.load(model_path)
 
     # ---------------------------------------------------------------------
-    # Extract trained feature names
+    # Extract trained feature names and categorical features
     # ---------------------------------------------------------------------
     base_est = model.estimators[0]
     trained_cols = list(base_est.feature_name_)
+
+    raw_cats = list(getattr(base_est, "categorical_feature_", []))
+    cat_cols = []
+    for v in raw_cats:
+        if isinstance(v, str):
+            cat_cols.append(v)
+        else:
+            # assume index
+            cat_cols.append(trained_cols[int(v)])
 
     print("\n================ TRAINED FEATURE COUNT ================")
     print(len(trained_cols))
@@ -91,30 +100,26 @@ def main():
     print("\n================ EXTRA FEATURES ================")
     print(extra)
 
-    # ---------------------------------------------------------------------
-    # FIX 1: Add missing columns AS CATEGORY dtype
-    # ---------------------------------------------------------------------
+    # Add missing columns with correct dtype (categorical vs numeric)
     for col in missing:
-        X_test[col] = pd.Series([np.nan] * len(X_test), dtype="category")
+        if col in cat_cols:
+            X_test[col] = pd.Series([np.nan] * len(X_test), dtype="category")
+        else:
+            X_test[col] = np.nan
 
-    # Drop extra columns
+    # Drop extra columns and reorder to match training
     X_test = X_test[trained_cols]
 
-    # ---------------------------------------------------------------------
-    # FIX 2: Convert any remaining object columns → category
-    # ---------------------------------------------------------------------
+    # Ensure all categorical features are category dtype
+    for col in cat_cols:
+        if col in X_test.columns:
+            if X_test[col].dtype != "category":
+                X_test[col] = X_test[col].astype("category")
+
+    # Also mirror train.py: convert any remaining object columns to category
     for col in X_test.columns:
         if X_test[col].dtype == "object":
             X_test[col] = X_test[col].astype("category")
-
-    # ---------------------------------------------------------------------
-    # BYPASS LIGHTGBM FEATURE VALIDATION
-    # ---------------------------------------------------------------------
-    for est in model.estimators:
-        booster = est._Booster
-        booster.pandas_categorical = []
-        booster.categorical_feature = []
-        booster.feature_name = trained_cols
 
     # ---------------------------------------------------------------------
     # Predict
