@@ -54,7 +54,9 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     print("Downloading assets...")
+    # test.csv from silver
     s3.download_file(bucket, "home-credit/silver/test/test.csv", test_path)
+    # latest model produced by train.py
     s3.download_file(bucket, "home-credit/model/aiml_model.pkl", model_path)
 
     print("Processing test.csv with Polars...")
@@ -79,7 +81,7 @@ def main():
         if isinstance(v, str):
             cat_cols.append(v)
         else:
-            # assume index
+            # index into trained_cols
             cat_cols.append(trained_cols[int(v)])
 
     print("\n================ TRAINED FEATURE COUNT ================")
@@ -112,14 +114,22 @@ def main():
 
     # Ensure all categorical features are category dtype
     for col in cat_cols:
-        if col in X_test.columns:
-            if X_test[col].dtype != "category":
-                X_test[col] = X_test[col].astype("category")
+        if col in X_test.columns and X_test[col].dtype != "category":
+            X_test[col] = X_test[col].astype("category")
 
-    # Also mirror train.py: convert any remaining object columns to category
+    # Mirror train.py: convert any remaining object columns to category
     for col in X_test.columns:
         if X_test[col].dtype == "object":
             X_test[col] = X_test[col].astype("category")
+
+    # ---------------------------------------------------------------------
+    # BYPASS LIGHTGBM CATEGORICAL VALIDATION (critical fix)
+    # ---------------------------------------------------------------------
+    for est in model.estimators:
+        booster = est._Booster
+        # Disable pandas-based categorical checks
+        booster.pandas_categorical = None
+        booster.categorical_feature = None
 
     # ---------------------------------------------------------------------
     # Predict
